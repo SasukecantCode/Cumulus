@@ -12,16 +12,18 @@ import (
 )
 
 type AuthHandler struct {
-	authService    *usecase.AuthService
-	accountService *usecase.AccountService
-	quotaService   *usecase.QuotaService
+	authService      *usecase.AuthService
+	accountService   *usecase.AccountService
+	workspaceService *usecase.WorkspaceService
+	quotaService     *usecase.QuotaService
 }
 
-func NewAuthHandler(authService *usecase.AuthService, accountService *usecase.AccountService, quotaService *usecase.QuotaService) *AuthHandler {
+func NewAuthHandler(authService *usecase.AuthService, accountService *usecase.AccountService, workspaceService *usecase.WorkspaceService, quotaService *usecase.QuotaService) *AuthHandler {
 	return &AuthHandler{
-		authService:    authService,
-		accountService: accountService,
-		quotaService:   quotaService,
+		authService:      authService,
+		accountService:   accountService,
+		workspaceService: workspaceService,
+		quotaService:     quotaService,
 	}
 }
 
@@ -47,19 +49,29 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	// Save the authenticated account to the database
-	// Authentication is not complete until persistence succeeds
 	account, err := h.accountService.SaveGoogleAccount(c.Request.Context(), result)
 	if err != nil {
 		writeError(c, err)
 		return
 	}
 
-	if _, err := h.quotaService.SyncAccountQuota(c.Request.Context(), account); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to sync quota for account %d: %v\n", account.ID, err)
+	workspace, _, quota, err := h.workspaceService.ResolveLoginWorkspace(c.Request.Context(), account)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+
+	if quota == nil {
+		if _, err := h.quotaService.SyncAccountQuota(c.Request.Context(), account); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to sync quota for account %d: %v\n", account.ID, err)
+		}
 	}
 
 	printSuccess(result, account)
+	if workspace != nil {
+		c.String(http.StatusOK, "Authenticated successfully\nWorkspace ID: %d\nEmail: %s\nGoogle Account ID: %s\nGranted scopes: %s\nRefresh token received: %t\nAccount ID: %d\n", workspace.ID, result.Email, result.GoogleAccountID, strings.Join(result.GrantedScopes, ", "), result.RefreshTokenReceived, account.ID)
+		return
+	}
 	c.String(http.StatusOK, "Authenticated successfully\nEmail: %s\nGoogle Account ID: %s\nGranted scopes: %s\nRefresh token received: %t\nAccount ID: %d\n", result.Email, result.GoogleAccountID, strings.Join(result.GrantedScopes, ", "), result.RefreshTokenReceived, account.ID)
 }
 
@@ -89,5 +101,76 @@ func writeError(c *gin.Context, err error) {
 	c.JSON(statusCode, gin.H{
 		"error":   appErr.Code,
 		"message": appErr.Message,
+	})
+}
+
+func (h *AuthHandler) ConnectSecondaryGoogleAccount(c *gin.Context) {
+	workspaceIDStr := c.Param("workspaceID")
+	var workspaceID uint64
+	if _, err := fmt.Sscanf(workspaceIDStr, "%d", &workspaceID); err != nil || workspaceID == 0 {
+		writeError(c, usecase.NewAppError(usecase.ErrorCodeWorkspaceNotFound, http.StatusBadRequest, "invalid workspace ID", nil))
+		return
+	}
+
+	var req struct {
+		Code  string `json:"code"`
+		State string `json:"state"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Code) == "" {
+		writeError(c, usecase.NewAppError(usecase.ErrorCodeMissingCode, http.StatusBadRequest, "missing authorization code in body", nil))
+		return
+	}
+
+	result, err := h.authService.HandleGoogleCallback(c.Request.Context(), req.Code, req.State)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+
+	account, err := h.accountService.SaveGoogleAccount(c.Request.Context(), result)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+
+	membership, quota, err := h.workspaceService.ConnectSecondaryAccount(c.Request.Context(), workspaceID, account)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "Secondary Google account connected successfully",
+		"workspace_id": workspaceID,
+		"account_id":   account.ID,
+		"role":         membership.Role,
+		"status":       membership.Status,
+		"quota":        quota,
+	})
+}
+
+func (h *AuthHandler) DisconnectAccount(c *gin.Context) {
+	workspaceIDStr := c.Param("workspaceID")
+	cloudAccountIDStr := c.Param("cloudAccountID")
+	var workspaceID, cloudAccountID uint64
+	if _, err := fmt.Sscanf(workspaceIDStr, "%d", &workspaceID); err != nil || workspaceID == 0 {
+		writeError(c, usecase.NewAppError(usecase.ErrorCodeWorkspaceNotFound, http.StatusBadRequest, "invalid workspace ID", nil))
+		return
+	}
+	if _, err := fmt.Sscanf(cloudAccountIDStr, "%d", &cloudAccountID); err != nil || cloudAccountID == 0 {
+		writeError(c, usecase.NewAppError(usecase.ErrorCodeWorkspaceNotFound, http.StatusBadRequest, "invalid cloud account ID", nil))
+		return
+	}
+
+	if err := h.workspaceService.DisconnectAccount(c.Request.Context(), workspaceID, cloudAccountID); err != nil {
+		writeError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":          "Cloud account disconnected successfully",
+		"workspace_id":     workspaceID,
+		"cloud_account_id": cloudAccountID,
+		"status":           domain.WorkspaceConnectionStatusDisconnected,
 	})
 }

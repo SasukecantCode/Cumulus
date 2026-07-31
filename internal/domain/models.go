@@ -74,6 +74,63 @@ func (CloudAccount) TableName() string {
 	return "cloud_accounts"
 }
 
+type WorkspaceStatus string
+
+const (
+	WorkspaceStatusActive WorkspaceStatus = "active"
+)
+
+type WorkspaceRole string
+
+const (
+	WorkspaceRolePrimary   WorkspaceRole = "PRIMARY"
+	WorkspaceRoleSecondary WorkspaceRole = "SECONDARY"
+)
+
+type WorkspaceConnectionStatus string
+
+const (
+	WorkspaceConnectionStatusConnected    WorkspaceConnectionStatus = "CONNECTED"
+	WorkspaceConnectionStatusDisconnected WorkspaceConnectionStatus = "DISCONNECTED"
+)
+
+type Workspace struct {
+	ID        uint64 `gorm:"primaryKey"`
+	UUID      string `gorm:"uniqueIndex"`
+	Name      string
+	Slug      string          `gorm:"uniqueIndex"`
+	Status    WorkspaceStatus `gorm:"index"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (Workspace) TableName() string {
+	return "workspaces"
+}
+
+type WorkspaceCloudAccount struct {
+	ID             uint64                    `gorm:"primaryKey"`
+	WorkspaceID    uint64                    `gorm:"index:idx_workspace_cloud_accounts_workspace_id"`
+	CloudAccountID uint64                    `gorm:"index:idx_workspace_cloud_accounts_cloud_account_id"`
+	Role           WorkspaceRole             `gorm:"index:idx_workspace_cloud_accounts_role"`
+	Status         WorkspaceConnectionStatus `gorm:"index:idx_workspace_cloud_accounts_status"`
+	ConnectedAt    time.Time                 `gorm:"index:idx_workspace_cloud_accounts_connected_at"`
+	DisconnectedAt *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func (WorkspaceCloudAccount) TableName() string {
+	return "workspace_cloud_accounts"
+}
+
+type WorkspaceStorageNode struct {
+	Account *CloudAccount
+	Quota   *CloudQuota
+	Role    WorkspaceRole
+	Status  WorkspaceConnectionStatus
+}
+
 type GoogleAccount struct {
 	ID               uint64
 	UserID           uint64

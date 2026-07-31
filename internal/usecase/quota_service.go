@@ -13,14 +13,14 @@ import (
 
 type QuotaService struct {
 	quotaRepo domain.QuotaRepository
-	provider  domain.QuotaProvider
+	registry  domain.QuotaProviderRegistry
 	encryptor *encryption.TokenEncryptor
 }
 
-func NewQuotaService(quotaRepo domain.QuotaRepository, provider domain.QuotaProvider, encryptor *encryption.TokenEncryptor) *QuotaService {
+func NewQuotaService(quotaRepo domain.QuotaRepository, registry domain.QuotaProviderRegistry, encryptor *encryption.TokenEncryptor) *QuotaService {
 	return &QuotaService{
 		quotaRepo: quotaRepo,
-		provider:  provider,
+		registry:  registry,
 		encryptor: encryptor,
 	}
 }
@@ -30,12 +30,17 @@ func (s *QuotaService) SyncAccountQuota(ctx context.Context, account *domain.Clo
 		return nil, NewAppError(ErrorCodeQuotaSyncFailed, http.StatusBadRequest, "cloud account is nil", nil)
 	}
 
+	provider, err := s.registry.Get(account.ProviderType)
+	if err != nil {
+		return s.persistFailure(ctx, account, "", NewAppError(ErrorCodeQuotaUnavailable, http.StatusServiceUnavailable, fmt.Sprintf("no quota provider registered for %s", account.ProviderType), err))
+	}
+
 	refreshToken, err := s.encryptor.Decrypt(account.RefreshToken)
 	if err != nil {
 		return s.persistFailure(ctx, account, "", NewAppError(ErrorCodeQuotaAuthentication, http.StatusUnauthorized, "failed to decrypt refresh token", err))
 	}
 
-	snapshot, err := s.provider.GetQuota(ctx, refreshToken)
+	snapshot, err := provider.GetQuota(ctx, refreshToken)
 	if err != nil {
 		return s.persistFailure(ctx, account, "", err)
 	}

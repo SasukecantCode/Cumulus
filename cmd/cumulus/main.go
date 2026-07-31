@@ -36,7 +36,7 @@ func main() {
 	// Initialize services and handlers
 	stateManager := utils.NewInMemoryStateManager(10 * time.Minute)
 	oauthClient := google.NewOAuthClient(cfg)
-	quotaProvider := google.NewGoogleDriveQuotaProvider(cfg)
+	googleQuotaProvider := google.NewGoogleDriveQuotaProvider(cfg)
 	authService := usecase.NewAuthService(oauthClient, stateManager)
 
 	// Initialize token encryptor
@@ -45,13 +45,19 @@ func main() {
 		log.Fatal(err)
 	}
 
+	// Initialize quota provider registry
+	quotaRegistry := usecase.NewMemoryQuotaProviderRegistry()
+	quotaRegistry.Register("google", googleQuotaProvider)
+
 	// Initialize repository and account service
 	cloudAccountRepo := postgres.NewCloudAccountRepository(db)
 	accountService := usecase.NewAccountService(cloudAccountRepo, encryptor)
+	workspaceRepo := postgres.NewWorkspaceRepository(db)
 	quotaRepo := postgres.NewQuotaRepository(db)
-	quotaService := usecase.NewQuotaService(quotaRepo, quotaProvider, encryptor)
+	quotaService := usecase.NewQuotaService(quotaRepo, quotaRegistry, encryptor)
+	workspaceService := usecase.NewWorkspaceService(workspaceRepo, quotaService, encryptor)
 
-	authHandler := handlers.NewAuthHandler(authService, accountService, quotaService)
+	authHandler := handlers.NewAuthHandler(authService, accountService, workspaceService, quotaService)
 
 	router := gin.Default()
 	routes.Register(router, authHandler)

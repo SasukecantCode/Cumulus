@@ -15,9 +15,29 @@ type CloudAccountRepository interface {
 	Delete(ctx context.Context, id uint64) error
 }
 
+type WorkspaceRepository interface {
+	Create(ctx context.Context, workspace *Workspace) error
+	CreateWorkspaceWithPrimary(ctx context.Context, workspace *Workspace, cloudAccountID uint64) (*WorkspaceCloudAccount, error)
+	FindByID(ctx context.Context, id uint64) (*Workspace, error)
+	FindBySlug(ctx context.Context, slug string) (*Workspace, error)
+	FindByCloudAccountID(ctx context.Context, cloudAccountID uint64) (*Workspace, *WorkspaceCloudAccount, error)
+	FindMembership(ctx context.Context, cloudAccountID uint64) (*WorkspaceCloudAccount, error)
+	AttachAccount(ctx context.Context, membership *WorkspaceCloudAccount) error
+	AttachSecondary(ctx context.Context, membership *WorkspaceCloudAccount) error
+	ReconnectMembership(ctx context.Context, membershipID uint64, workspaceID uint64, role WorkspaceRole) error
+	DisconnectAccount(ctx context.Context, workspaceID, cloudAccountID uint64) error
+	GetActiveAccounts(ctx context.Context, workspaceID uint64) ([]*CloudAccount, error)
+	GetActiveStorageNodes(ctx context.Context, workspaceID uint64) ([]*WorkspaceStorageNode, error)
+}
+
 type QuotaRepository interface {
 	Upsert(ctx context.Context, quota *CloudQuota) error
 	FindByCloudAccountID(ctx context.Context, cloudAccountID uint64) (*CloudQuota, error)
+}
+
+type QuotaProviderRegistry interface {
+	Register(providerType string, provider QuotaProvider)
+	Get(providerType string) (QuotaProvider, error)
 }
 
 type GoogleAccountRepository interface {
