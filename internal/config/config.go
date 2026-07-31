@@ -2,9 +2,11 @@ package config
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -32,7 +34,7 @@ type DatabaseConfig struct {
 
 func Load() (*Config, error) {
 	// Load and validate encryption key (must be 32 bytes for AES-256)
-	encryptionKeyStr := os.Getenv("ENCRYPTION_KEY")
+	encryptionKeyStr := valueOrDefault("ENCRYPTION_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	var encryptionKey []byte
 	if encryptionKeyStr != "" {
 		// Key should be a hex-encoded 32-byte string
@@ -43,16 +45,35 @@ func Load() (*Config, error) {
 		encryptionKey = decoded
 	}
 
+	clientID := os.Getenv("GOOGLE_CLIENT_ID")
+	clientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
+	redirectURL := os.Getenv("GOOGLE_REDIRECT_URL")
+
+	if clientID == "" || clientSecret == "" || redirectURL == "" {
+		fClientID, fClientSecret, fRedirectURL, err := loadGoogleCredentialsFile()
+		if err == nil {
+			if clientID == "" {
+				clientID = fClientID
+			}
+			if clientSecret == "" {
+				clientSecret = fClientSecret
+			}
+			if redirectURL == "" {
+				redirectURL = fRedirectURL
+			}
+		}
+	}
+
 	config := &Config{
 		HTTPPort: valueOrDefault("HTTP_PORT", "8080"),
 		Google: GoogleOAuthConfig{
-			ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-			ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-			RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			RedirectURL:  redirectURL,
 			Scopes:       parseScopes(os.Getenv("GOOGLE_SCOPES")),
 		},
 		Database: DatabaseConfig{
-			URL: os.Getenv("DATABASE_URL"),
+			URL: valueOrDefault("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/cumulus?sslmode=disable"),
 		},
 		EncryptionKey: encryptionKey,
 	}
@@ -116,7 +137,7 @@ func valueOrDefault(name, fallback string) string {
 func parseScopes(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return []string{"openid", "email"}
+		return []string{"openid", "email", "https://www.googleapis.com/auth/drive"}
 	}
 
 	parts := strings.Split(raw, ",")
@@ -127,6 +148,77 @@ func parseScopes(raw string) []string {
 		}
 	}
 	return scopes
+}
+
+type googleCredentialsFile struct {
+	Web *struct {
+		ClientID     string   `json:"client_id"`
+		ClientSecret string   `json:"client_secret"`
+		RedirectURIs []string `json:"redirect_uris"`
+	} `json:"web"`
+	Installed *struct {
+		ClientID     string   `json:"client_id"`
+		ClientSecret string   `json:"client_secret"`
+		RedirectURIs []string `json:"redirect_uris"`
+	} `json:"installed"`
+}
+
+func loadGoogleCredentialsFile() (clientID, clientSecret, redirectURL string, err error) {
+	candidates := []string{
+		"credentials/client_secret.json",
+		"../credentials/client_secret.json",
+		"../../credentials/client_secret.json",
+	}
+	if matches, _ := filepath.Glob("credentials/client_secret*.json"); len(matches) > 0 {
+		candidates = append(candidates, matches...)
+	}
+	if matches, _ := filepath.Glob("../credentials/client_secret*.json"); len(matches) > 0 {
+		candidates = append(candidates, matches...)
+	}
+	if matches, _ := filepath.Glob("../../credentials/client_secret*.json"); len(matches) > 0 {
+		candidates = append(candidates, matches...)
+	}
+	if matches, _ := filepath.Glob("credentials/*.json"); len(matches) > 0 {
+		candidates = append(candidates, matches...)
+	}
+
+	var filePath string
+	for _, path := range candidates {
+		if _, err := os.Stat(path); err == nil {
+			filePath = path
+			break
+		}
+	}
+
+	if filePath == "" {
+		return "", "", "", errors.New("credentials file not found in credentials/")
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to read credentials file: %w", err)
+	}
+
+	var creds googleCredentialsFile
+	if err := json.Unmarshal(data, &creds); err != nil {
+		return "", "", "", fmt.Errorf("failed to unmarshal credentials file: %w", err)
+	}
+
+	if creds.Web != nil {
+		clientID = creds.Web.ClientID
+		clientSecret = creds.Web.ClientSecret
+		if len(creds.Web.RedirectURIs) > 0 {
+			redirectURL = creds.Web.RedirectURIs[0]
+		}
+	} else if creds.Installed != nil {
+		clientID = creds.Installed.ClientID
+		clientSecret = creds.Installed.ClientSecret
+		if len(creds.Installed.RedirectURIs) > 0 {
+			redirectURL = creds.Installed.RedirectURIs[0]
+		}
+	}
+
+	return clientID, clientSecret, redirectURL, nil
 }
 
 func (c Config) String() string {

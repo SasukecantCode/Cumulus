@@ -64,3 +64,8 @@ __debug_bin
 config.local.yaml
 config.local.yml
 config.local.json
+
+# Local credentials
+credentials/
+client_secret*.json
+
