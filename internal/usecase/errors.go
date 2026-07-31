@@ -12,6 +12,11 @@ const (
 	ErrorCodeOAuthProfileFailed   ErrorCode = "oauth_profile_failed"
 	ErrorCodeGoogleUnavailable    ErrorCode = "google_unavailable"
 	ErrorCodeInvalidAuthorization ErrorCode = "invalid_authorization_code"
+	ErrorCodeQuotaSyncFailed      ErrorCode = "quota_sync_failed"
+	ErrorCodeQuotaUnavailable     ErrorCode = "quota_provider_unavailable"
+	ErrorCodeQuotaAuthentication  ErrorCode = "quota_authentication_failed"
+	ErrorCodeQuotaRateLimited     ErrorCode = "quota_rate_limited"
+	ErrorCodeQuotaInvalidResponse ErrorCode = "quota_invalid_response"
 )
 
 type AppError struct {

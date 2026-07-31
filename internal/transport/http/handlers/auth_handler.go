@@ -14,12 +14,14 @@ import (
 type AuthHandler struct {
 	authService    *usecase.AuthService
 	accountService *usecase.AccountService
+	quotaService   *usecase.QuotaService
 }
 
-func NewAuthHandler(authService *usecase.AuthService, accountService *usecase.AccountService) *AuthHandler {
+func NewAuthHandler(authService *usecase.AuthService, accountService *usecase.AccountService, quotaService *usecase.QuotaService) *AuthHandler {
 	return &AuthHandler{
 		authService:    authService,
 		accountService: accountService,
+		quotaService:   quotaService,
 	}
 }
 
@@ -51,6 +53,10 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	if err != nil {
 		writeError(c, err)
 		return
+	}
+
+	if _, err := h.quotaService.SyncAccountQuota(c.Request.Context(), account); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to sync quota for account %d: %v\n", account.ID, err)
 	}
 
 	printSuccess(result, account)

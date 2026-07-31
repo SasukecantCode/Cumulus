@@ -15,6 +15,11 @@ type CloudAccountRepository interface {
 	Delete(ctx context.Context, id uint64) error
 }
 
+type QuotaRepository interface {
+	Upsert(ctx context.Context, quota *CloudQuota) error
+	FindByCloudAccountID(ctx context.Context, cloudAccountID uint64) (*CloudQuota, error)
+}
+
 type GoogleAccountRepository interface {
 	Create(ctx context.Context, account *GoogleAccount) error
 	Update(ctx context.Context, account *GoogleAccount) error
@@ -46,6 +51,10 @@ type OAuthProvider interface {
 	ExchangeCode(ctx context.Context, code string) (OAuthTokens, error)
 	GetAuthURL(state string) string
 	GetUserProfile(ctx context.Context, accessToken string) (OAuthUserProfile, error)
+}
+
+type QuotaProvider interface {
+	GetQuota(ctx context.Context, refreshToken string) (QuotaSnapshot, error)
 }
 
 type DriveProvider interface {
@@ -96,6 +105,13 @@ type StorageQuota struct {
 	Total     int64
 	Used      int64
 	Remaining int64
+}
+
+type QuotaSnapshot struct {
+	TotalBytes     int64
+	UsedBytes      int64
+	AvailableBytes int64
+	RawResponse    string
 }
 
 type ScheduleRequest struct {

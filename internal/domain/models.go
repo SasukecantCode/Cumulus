@@ -41,6 +41,34 @@ type CloudAccount struct {
 	UpdatedAt         time.Time
 }
 
+type QuotaSyncStatus string
+
+const (
+	QuotaSyncStatusPending QuotaSyncStatus = "pending"
+	QuotaSyncStatusSuccess QuotaSyncStatus = "success"
+	QuotaSyncStatusFailed  QuotaSyncStatus = "failed"
+)
+
+type CloudQuota struct {
+	ID             uint64 `gorm:"primaryKey"`
+	CloudAccountID uint64 `gorm:"uniqueIndex:idx_cloud_quota_account"`
+	Provider       string `gorm:"index:idx_cloud_quota_provider"`
+	TotalBytes     int64
+	UsedBytes      int64
+	AvailableBytes int64
+	LastSyncedAt   time.Time       `gorm:"index:idx_cloud_quota_last_synced_at"`
+	SyncStatus     QuotaSyncStatus `gorm:"index:idx_cloud_quota_status"`
+	SyncError      string          `gorm:"type:text"`
+	RawResponse    string          `gorm:"type:text"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+// TableName specifies the table name for GORM
+func (CloudQuota) TableName() string {
+	return "cloud_quotas"
+}
+
 // TableName specifies the table name for GORM
 func (CloudAccount) TableName() string {
 	return "cloud_accounts"
