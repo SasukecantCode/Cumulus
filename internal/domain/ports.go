@@ -8,6 +8,13 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email string) (*User, error)
 }
 
+type CloudAccountRepository interface {
+	CreateOrUpdate(ctx context.Context, account *CloudAccount) error
+	FindByProviderAccount(ctx context.Context, providerType, providerAccountID string) (*CloudAccount, error)
+	FindByEmail(ctx context.Context, email string) ([]*CloudAccount, error)
+	Delete(ctx context.Context, id uint64) error
+}
+
 type GoogleAccountRepository interface {
 	Create(ctx context.Context, account *GoogleAccount) error
 	Update(ctx context.Context, account *GoogleAccount) error

@@ -17,6 +17,7 @@ type AuthService struct {
 type AuthResult struct {
 	Email                string
 	GoogleAccountID      string
+	RefreshToken         string
 	GrantedScopes        []string
 	RefreshTokenReceived bool
 }
@@ -59,6 +60,7 @@ func (s *AuthService) HandleGoogleCallback(ctx context.Context, code, state stri
 	return &AuthResult{
 		Email:                profile.Email,
 		GoogleAccountID:      profile.GoogleAccountID,
+		RefreshToken:         tokens.RefreshToken,
 		GrantedScopes:        tokens.Scopes,
 		RefreshTokenReceived: strings.TrimSpace(tokens.RefreshToken) != "",
 	}, nil

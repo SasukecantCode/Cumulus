@@ -28,6 +28,24 @@ type User struct {
 	UpdatedAt time.Time
 }
 
+// CloudAccount represents a connected cloud storage account (provider-agnostic)
+type CloudAccount struct {
+	ID                uint64 `gorm:"primaryKey"`
+	ProviderType      string `gorm:"uniqueIndex:idx_provider_account"` // "google", "dropbox", "onedrive", etc.
+	ProviderAccountID string `gorm:"uniqueIndex:idx_provider_account"` // Google ID, Dropbox ID, etc. (unique per provider)
+	Email             string
+	RefreshToken      string // For accessing the provider API (encrypted)
+	GrantedScopes     string // JSON array of granted scopes
+	Status            AccountStatus
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// TableName specifies the table name for GORM
+func (CloudAccount) TableName() string {
+	return "cloud_accounts"
+}
+
 type GoogleAccount struct {
 	ID               uint64
 	UserID           uint64
