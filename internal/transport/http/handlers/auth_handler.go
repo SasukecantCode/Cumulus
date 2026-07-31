@@ -8,6 +8,7 @@ import (
 
 	"cumulus/internal/domain"
 	"cumulus/internal/usecase"
+	"cumulus/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
@@ -28,7 +29,19 @@ func NewAuthHandler(authService *usecase.AuthService, accountService *usecase.Ac
 }
 
 func (h *AuthHandler) StartGoogleLogin(c *gin.Context) {
-	redirectURL, err := h.authService.StartGoogleLogin(c.Request.Context())
+	workspaceIDStr := c.Query("workspace_id")
+	var workspaceID uint64
+	if workspaceIDStr != "" {
+		fmt.Sscanf(workspaceIDStr, "%d", &workspaceID)
+	}
+
+	uiPort := "3000"
+	referer := c.Request.Referer()
+	if strings.Contains(referer, ":8080") || c.Query("frontend") == "8080" {
+		uiPort = "8080"
+	}
+
+	redirectURL, err := h.authService.StartGoogleLoginWithContext(c.Request.Context(), workspaceID, uiPort)
 	if err != nil {
 		writeError(c, err)
 		return
@@ -43,7 +56,10 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	result, err := h.authService.HandleGoogleCallback(c.Request.Context(), c.Query("code"), c.Query("state"))
+	state := c.Query("state")
+	targetWS, uiPort := utils.ParseStateContext(state)
+
+	result, err := h.authService.HandleGoogleCallback(c.Request.Context(), c.Query("code"), state)
 	if err != nil {
 		writeError(c, err)
 		return
@@ -55,24 +71,62 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 		return
 	}
 
-	workspace, _, quota, err := h.workspaceService.ResolveLoginWorkspace(c.Request.Context(), account)
-	if err != nil {
-		writeError(c, err)
-		return
+	var workspace *domain.Workspace
+	var quota *domain.CloudQuota
+	var attachError string
+
+	if targetWS > 0 {
+		_, quota, err = h.workspaceService.ConnectSecondaryAccount(c.Request.Context(), targetWS, account)
+		if err != nil {
+			if appErr, ok := err.(*usecase.AppError); ok && appErr.Code == usecase.ErrorCodeCloudAccountAlreadyAttached {
+				attachError = "already_attached"
+				ws, _, _ := h.workspaceService.GetWorkspaceStorageNodes(c.Request.Context(), targetWS)
+				workspace = ws
+			} else {
+				writeError(c, err)
+				return
+			}
+		} else {
+			ws, _, _ := h.workspaceService.GetWorkspaceStorageNodes(c.Request.Context(), targetWS)
+			workspace = ws
+		}
+	} else {
+		workspace, _, quota, err = h.workspaceService.ResolveLoginWorkspace(c.Request.Context(), account)
+		if err != nil {
+			writeError(c, err)
+			return
+		}
 	}
 
-	if quota == nil {
+	if quota == nil && account != nil {
 		if _, err := h.quotaService.SyncAccountQuota(c.Request.Context(), account); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to sync quota for account %d: %v\n", account.ID, err)
 		}
 	}
 
 	printSuccess(result, account)
+
+	wsID := uint64(1)
 	if workspace != nil {
-		c.String(http.StatusOK, "Authenticated successfully\nWorkspace ID: %d\nEmail: %s\nGoogle Account ID: %s\nGranted scopes: %s\nRefresh token received: %t\nAccount ID: %d\n", workspace.ID, result.Email, result.GoogleAccountID, strings.Join(result.GrantedScopes, ", "), result.RefreshTokenReceived, account.ID)
-		return
+		wsID = workspace.ID
+	} else if targetWS > 0 {
+		wsID = targetWS
 	}
-	c.String(http.StatusOK, "Authenticated successfully\nEmail: %s\nGoogle Account ID: %s\nGranted scopes: %s\nRefresh token received: %t\nAccount ID: %d\n", result.Email, result.GoogleAccountID, strings.Join(result.GrantedScopes, ", "), result.RefreshTokenReceived, account.ID)
+
+	baseURL := "http://localhost:3000"
+	if uiPort == "8080" {
+		baseURL = "http://localhost:8080/dashboard"
+	}
+
+	cleanBase := strings.TrimSuffix(baseURL, "/dashboard")
+	cleanBase = strings.TrimSuffix(cleanBase, "/")
+
+	redirectPath := fmt.Sprintf("%s/?workspace_id=%d&connected=true", cleanBase, wsID)
+	if attachError != "" {
+		redirectPath = fmt.Sprintf("%s/?workspace_id=%d&error=%s&email=%s", cleanBase, wsID, attachError, account.Email)
+	}
+
+	c.Redirect(http.StatusFound, redirectPath)
 }
 
 func printSuccess(result *usecase.AuthResult, account *domain.CloudAccount) {

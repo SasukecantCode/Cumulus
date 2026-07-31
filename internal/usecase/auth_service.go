@@ -30,7 +30,11 @@ func NewAuthService(oauthProvider domain.OAuthProvider, stateManager utils.State
 }
 
 func (s *AuthService) StartGoogleLogin(_ context.Context) (string, error) {
-	state, err := s.stateManager.GenerateState()
+	return s.StartGoogleLoginWithContext(context.Background(), 0, "3000")
+}
+
+func (s *AuthService) StartGoogleLoginWithContext(_ context.Context, workspaceID uint64, uiPort string) (string, error) {
+	state, err := s.stateManager.GenerateStateWithContext(workspaceID, uiPort)
 	if err != nil {
 		return "", NewAppError(ErrorCodeOAuthExchangeFailed, http.StatusInternalServerError, "failed to generate OAuth state", err)
 	}

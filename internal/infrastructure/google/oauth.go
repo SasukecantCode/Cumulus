@@ -30,7 +30,12 @@ func NewOAuthClient(cfg *config.Config) *OAuthClient {
 }
 
 func (c *OAuthClient) GetAuthURL(state string) string {
-	return c.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.SetAuthURLParam("prompt", "consent"))
+	return c.oauthConfig.AuthCodeURL(
+		state,
+		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("prompt", "consent select_account"),
+		oauth2.SetAuthURLParam("include_granted_scopes", "true"),
+	)
 }
 
 func (c *OAuthClient) ExchangeCode(ctx context.Context, code string) (domain.OAuthTokens, error) {

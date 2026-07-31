@@ -212,12 +212,11 @@ func (r *WorkspaceRepository) GetActiveStorageNodes(ctx context.Context, workspa
 			cq.updated_at AS cq_updated_at
 		`).
 		Joins("JOIN cloud_accounts ca ON ca.id = wca.cloud_account_id").
-		Joins("JOIN cloud_quotas cq ON cq.cloud_account_id = ca.id").
-		Where("wca.workspace_id = ? AND wca.status = ? AND ca.status = ? AND cq.sync_status = ?",
+		Joins("LEFT JOIN cloud_quotas cq ON cq.cloud_account_id = ca.id").
+		Where("wca.workspace_id = ? AND wca.status = ? AND ca.status = ?",
 			workspaceID,
 			domain.WorkspaceConnectionStatusConnected,
 			domain.AccountStatusActive,
-			domain.QuotaSyncStatusSuccess,
 		).
 		Order("wca.role ASC, wca.created_at ASC").
 		Scan(&rows).Error

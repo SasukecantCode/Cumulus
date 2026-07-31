@@ -4,12 +4,16 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 type StateManager interface {
 	GenerateState() (string, error)
+	GenerateStateWithContext(workspaceID uint64, uiPort string) (string, error)
 	ValidateState(state string) error
 }
 
@@ -27,16 +31,44 @@ func NewInMemoryStateManager(ttl time.Duration) *InMemoryStateManager {
 }
 
 func (m *InMemoryStateManager) GenerateState() (string, error) {
-	state, err := randomState(32)
+	return m.GenerateStateWithContext(0, "3000")
+}
+
+func (m *InMemoryStateManager) GenerateStateWithContext(workspaceID uint64, uiPort string) (string, error) {
+	randToken, err := randomState(16)
 	if err != nil {
 		return "", err
 	}
+
+	if uiPort == "" {
+		uiPort = "3000"
+	}
+
+	state := fmt.Sprintf("ws_%d_ui_%s_%s", workspaceID, uiPort, randToken)
 
 	m.mu.Lock()
 	m.states[state] = time.Now().Add(m.ttl)
 	m.mu.Unlock()
 
 	return state, nil
+}
+
+func ParseStateContext(state string) (workspaceID uint64, uiPort string) {
+	if !strings.HasPrefix(state, "ws_") {
+		return 0, "3000"
+	}
+
+	parts := strings.Split(state, "_")
+	// Expected format: ["ws", "<workspaceID>", "ui", "<uiPort>", "<randToken>"]
+	if len(parts) >= 5 && parts[0] == "ws" && parts[2] == "ui" {
+		if id, err := strconv.ParseUint(parts[1], 10, 64); err == nil {
+			workspaceID = id
+		}
+		uiPort = parts[3]
+		return workspaceID, uiPort
+	}
+
+	return 0, "3000"
 }
 
 func (m *InMemoryStateManager) ValidateState(state string) error {

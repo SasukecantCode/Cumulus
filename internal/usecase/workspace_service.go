@@ -25,6 +25,21 @@ func NewWorkspaceService(workspaceRepo domain.WorkspaceRepository, quotaService 
 	}
 }
 
+func (s *WorkspaceService) GetWorkspaceStorageNodes(ctx context.Context, workspaceID uint64) (*domain.Workspace, []*domain.WorkspaceStorageNode, error) {
+	ws, err := s.workspaceRepo.FindByID(ctx, workspaceID)
+	if err != nil {
+		return nil, nil, NewAppError(ErrorCodeWorkspaceNotFound, http.StatusInternalServerError, "failed to fetch workspace", err)
+	}
+	if ws == nil {
+		return nil, nil, NewAppError(ErrorCodeWorkspaceNotFound, http.StatusNotFound, "workspace not found", nil)
+	}
+	nodes, err := s.workspaceRepo.GetActiveStorageNodes(ctx, workspaceID)
+	if err != nil {
+		return nil, nil, NewAppError(ErrorCodeWorkspaceNotFound, http.StatusInternalServerError, "failed to fetch storage nodes", err)
+	}
+	return ws, nodes, nil
+}
+
 func (s *WorkspaceService) ResolveLoginWorkspace(ctx context.Context, account *domain.CloudAccount) (*domain.Workspace, *domain.WorkspaceCloudAccount, *domain.CloudQuota, error) {
 	if account == nil {
 		return nil, nil, nil, NewAppError(ErrorCodeWorkspaceNotFound, http.StatusBadRequest, "cloud account is nil", nil)
@@ -35,10 +50,7 @@ func (s *WorkspaceService) ResolveLoginWorkspace(ctx context.Context, account *d
 		return nil, nil, nil, NewAppError(ErrorCodeWorkspaceNotFound, http.StatusInternalServerError, "failed to resolve workspace", err)
 	}
 	if workspace != nil && membership != nil && membership.Status == domain.WorkspaceConnectionStatusConnected {
-		quota, quotaErr := s.quotaService.SyncAccountQuota(ctx, account)
-		if quotaErr != nil {
-			return workspace, membership, quota, quotaErr
-		}
+		quota, _ := s.quotaService.SyncAccountQuota(ctx, account)
 		return workspace, membership, quota, nil
 	}
 
@@ -58,11 +70,7 @@ func (s *WorkspaceService) ResolveLoginWorkspace(ctx context.Context, account *d
 		return nil, nil, nil, err
 	}
 
-	quota, quotaErr := s.quotaService.SyncAccountQuota(ctx, account)
-	if quotaErr != nil {
-		return workspace, membership, quota, quotaErr
-	}
-
+	quota, _ := s.quotaService.SyncAccountQuota(ctx, account)
 	return workspace, membership, quota, nil
 }
 
@@ -91,24 +99,22 @@ func (s *WorkspaceService) ConnectSecondaryAccount(ctx context.Context, workspac
 			return existingMembership, quota, nil
 		}
 
-		// Case B: Connected to another active Workspace -> HTTP 409 Conflict
-		if existingMembership.Status == domain.WorkspaceConnectionStatusConnected && existingMembership.WorkspaceID != workspaceID {
+		// Case B: Connected as SECONDARY to another active Workspace -> HTTP 409 Conflict
+		if existingMembership.Status == domain.WorkspaceConnectionStatusConnected && existingMembership.WorkspaceID != workspaceID && existingMembership.Role == domain.WorkspaceRoleSecondary {
 			return nil, nil, NewAppError(ErrorCodeCloudAccountAlreadyAttached, http.StatusConflict, "cloud account already attached to another workspace", nil)
 		}
 
-		// Case C: Previously disconnected -> Reconnect
-		if existingMembership.Status == domain.WorkspaceConnectionStatusDisconnected {
-			targetRole := domain.WorkspaceRoleSecondary
-			if err := s.workspaceRepo.ReconnectMembership(ctx, existingMembership.ID, workspaceID, targetRole); err != nil {
-				return nil, nil, NewAppError(ErrorCodeCloudAccountAlreadyAttached, http.StatusInternalServerError, "failed to reconnect account membership", err)
-			}
-			reconnectedMembership, err := s.workspaceRepo.FindMembership(ctx, account.ID)
-			if err != nil {
-				return nil, nil, NewAppError(ErrorCodeWorkspaceNotFound, http.StatusInternalServerError, "failed to fetch reconnected membership", err)
-			}
-			quota, _ := s.quotaService.SyncAccountQuota(ctx, account)
-			return reconnectedMembership, quota, nil
+		// Case C: Solo Primary or Disconnected -> Re-link to target workspace as SECONDARY
+		targetRole := domain.WorkspaceRoleSecondary
+		if err := s.workspaceRepo.ReconnectMembership(ctx, existingMembership.ID, workspaceID, targetRole); err != nil {
+			return nil, nil, NewAppError(ErrorCodeCloudAccountAlreadyAttached, http.StatusInternalServerError, "failed to re-link account membership", err)
 		}
+		reconnectedMembership, err := s.workspaceRepo.FindMembership(ctx, account.ID)
+		if err != nil {
+			return nil, nil, NewAppError(ErrorCodeWorkspaceNotFound, http.StatusInternalServerError, "failed to fetch reconnected membership", err)
+		}
+		quota, _ := s.quotaService.SyncAccountQuota(ctx, account)
+		return reconnectedMembership, quota, nil
 	}
 
 	// Case D: Brand new account membership

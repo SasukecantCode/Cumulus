@@ -69,3 +69,12 @@ config.local.json
 credentials/
 client_secret*.json
 
+# Compiled binaries
+cumulus
+cumulus-*
+
+# Database / SQLite files
+*.db
+*.sqlite
+*.sqlite3
+
