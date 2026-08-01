@@ -459,3 +459,24 @@ func TestUploadFile_CompensatingRollback(t *testing.T) {
 		t.Errorf("expected compensating provider.Delete() to be called on DB update failure")
 	}
 }
+
+func (m *mockStorageProvider) List(ctx context.Context, account *domain.CloudAccount, input domain.StorageListInput) (*domain.StorageListPage, error) {
+	return &domain.StorageListPage{}, nil
+}
+
+func (m *mockFileRepo) ListForSync(ctx context.Context, query domain.FileSyncQuery) ([]*domain.File, error) {
+	return nil, nil
+}
+
+func (m *mockFileRepo) CreateBatch(ctx context.Context, files []*domain.File) error {
+	for _, file := range files {
+		if err := m.Create(ctx, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *mockFileRepo) MarkMissingFromProvider(ctx context.Context, ids []uint64) error {
+	return nil
+}

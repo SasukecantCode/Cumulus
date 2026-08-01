@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"net/http"
+
 	"cumulus/internal/transport/http/handlers"
 	"github.com/gin-gonic/gin"
 )
@@ -10,15 +12,16 @@ func CORSMiddleware() gin.HandlerFunc {
 		origin := c.Request.Header.Get("Origin")
 		if origin != "" {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		} else {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		}
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Disposition")
 
 		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
+			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
 
@@ -26,7 +29,13 @@ func CORSMiddleware() gin.HandlerFunc {
 	}
 }
 
-func Register(router *gin.Engine, authHandler *handlers.AuthHandler, uploadHandler *handlers.UploadHandler, fileHandler *handlers.FileHandler) {
+func Register(
+	router *gin.Engine,
+	authHandler *handlers.AuthHandler,
+	uploadHandler *handlers.UploadHandler,
+	fileHandler *handlers.FileHandler,
+	syncHandler *handlers.SyncHandler,
+) {
 	router.Use(CORSMiddleware())
 
 	router.GET("/", authHandler.ServeDashboard)
@@ -45,5 +54,9 @@ func Register(router *gin.Engine, authHandler *handlers.AuthHandler, uploadHandl
 		router.DELETE("/workspaces/:workspaceID/files/:fileID", fileHandler.DeleteFileHandler)
 		router.PATCH("/workspaces/:workspaceID/files/:fileID", fileHandler.RenameFileHandler)
 		router.PATCH("/workspaces/:workspaceID/files/:fileID/move", fileHandler.MoveFileHandler)
+	}
+
+	if syncHandler != nil {
+		router.POST("/workspaces/:workspaceID/sync", syncHandler.SyncWorkspaceHandler)
 	}
 }

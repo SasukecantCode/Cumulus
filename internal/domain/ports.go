@@ -51,6 +51,11 @@ type FileRepository interface {
 	FindByWorkspace(ctx context.Context, workspaceID uint64) ([]*File, error)
 	ListWorkspaceFiles(ctx context.Context, filter FileListFilter) ([]*File, int64, error)
 	FindByProviderFileID(ctx context.Context, providerFileID string) (*File, error)
+	// ListForSync returns every live row for one account, including deleted
+	// ones, so a re-import can revive a row rather than duplicate it.
+	ListForSync(ctx context.Context, query FileSyncQuery) ([]*File, error)
+	CreateBatch(ctx context.Context, files []*File) error
+	MarkMissingFromProvider(ctx context.Context, ids []uint64) error
 	UpdateMetadata(ctx context.Context, file *File) error
 	UpdateStatus(ctx context.Context, id uint64, status FileStatus) error
 	SoftDelete(ctx context.Context, id uint64) error
@@ -105,6 +110,25 @@ type StorageFileMetadata struct {
 	ETag           string
 }
 
+// FileRepository lookups used by the drive sync.
+type FileSyncQuery struct {
+	WorkspaceID    uint64
+	CloudAccountID uint64
+}
+
+// StorageListInput asks a provider for one page of everything the account
+// holds — not just what Cumulus put there. PageToken is opaque and provider
+// defined; an empty token means "start at the beginning".
+type StorageListInput struct {
+	PageToken string
+	PageSize  int
+}
+
+type StorageListPage struct {
+	Files         []StorageFileMetadata
+	NextPageToken string
+}
+
 type StorageProvider interface {
 	Upload(ctx context.Context, account *CloudAccount, input StorageUploadInput) (*UploadedObject, error)
 	Download(ctx context.Context, account *CloudAccount, providerFileID string) (io.ReadCloser, error)
@@ -112,6 +136,9 @@ type StorageProvider interface {
 	Rename(ctx context.Context, account *CloudAccount, providerFileID string, newName string) error
 	Move(ctx context.Context, account *CloudAccount, providerFileID string, targetFolderID string) error
 	GetMetadata(ctx context.Context, account *CloudAccount, providerFileID string) (*StorageFileMetadata, error)
+	// List walks everything already in the account, so files that predate
+	// Cumulus (or were added outside it) can be adopted into the workspace.
+	List(ctx context.Context, account *CloudAccount, input StorageListInput) (*StorageListPage, error)
 }
 
 type StorageProviderRegistry interface {

@@ -50,3 +50,7 @@ func TestMemoryStorageProviderRegistry(t *testing.T) {
 		t.Fatal("returned provider does not match registered instance")
 	}
 }
+
+func (m *mockStorageProviderStub) List(ctx context.Context, account *domain.CloudAccount, input domain.StorageListInput) (*domain.StorageListPage, error) {
+	return &domain.StorageListPage{}, nil
+}

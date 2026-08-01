@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"net/textproto"
 	"strconv"
 	"strings"
@@ -23,6 +24,8 @@ import (
 const (
 	googleDriveUploadURL = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,size,createdTime,modifiedTime,headRevisionId"
 	googleDriveFilesURL  = "https://www.googleapis.com/drive/v3/files"
+
+	driveListMaxPageSize = 1000
 )
 
 type GoogleDriveStorageProvider struct {
@@ -204,24 +207,26 @@ func (p *GoogleDriveStorageProvider) Download(ctx context.Context, account *doma
 		return nil, usecase.NewAppError(usecase.ErrorCodeInvalidUploadRequest, http.StatusBadRequest, "invalid download request parameters", nil)
 	}
 
-	refreshToken, err := p.encryptor.Decrypt(account.RefreshToken)
+	token, err := p.accessToken(ctx, account)
 	if err != nil {
-		return nil, usecase.NewAppError(usecase.ErrorCodeStorageAuthenticationFailed, http.StatusUnauthorized, "failed to decrypt refresh token", err)
+		return nil, err
 	}
 
-	tokenSource := p.oauthConfig.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
-	token, err := tokenSource.Token()
-	if err != nil {
-		return nil, classifyGoogleStorageAuthError(err)
+	// An imported Google Doc holds no bytes of its own, so alt=media fails on
+	// it — natives have to go through /export instead.
+	downloadURL := fmt.Sprintf("%s/%s?alt=media", googleDriveFilesURL, providerFileID)
+	if meta, metaErr := p.GetMetadata(ctx, account, providerFileID); metaErr == nil && meta != nil {
+		if exportMIME, isNative := googleNativeExportMIME(meta.MimeType); isNative {
+			downloadURL = fmt.Sprintf("%s/%s/export?mimeType=%s", googleDriveFilesURL, providerFileID, url.QueryEscape(exportMIME))
+		}
 	}
 
-	url := fmt.Sprintf("%s/%s?alt=media", googleDriveFilesURL, providerFileID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return nil, usecase.NewAppError(usecase.ErrorCodeFileUploadFailed, http.StatusInternalServerError, "failed to create download HTTP request", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -400,6 +405,148 @@ func (p *GoogleDriveStorageProvider) GetMetadata(ctx context.Context, account *d
 		ModifiedTime:   modifiedTime,
 		ETag:           driveResp.HeadRevisionID,
 	}, nil
+}
+
+// List walks the account's Drive one page at a time. Folders and trashed
+// items are filtered server-side; everything else the user owns or has been
+// given is returned, which is the point — these are the files that were
+// already there before Cumulus existed.
+func (p *GoogleDriveStorageProvider) List(ctx context.Context, account *domain.CloudAccount, input domain.StorageListInput) (*domain.StorageListPage, error) {
+	if account == nil {
+		return nil, usecase.NewAppError(usecase.ErrorCodePrimaryAccountMissing, http.StatusBadRequest, "cloud account is nil", nil)
+	}
+
+	token, err := p.accessToken(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+
+	pageSize := input.PageSize
+	if pageSize <= 0 || pageSize > driveListMaxPageSize {
+		pageSize = driveListMaxPageSize
+	}
+
+	query := url.Values{}
+	query.Set("q", "trashed = false and mimeType != 'application/vnd.google-apps.folder'")
+	query.Set("fields", "nextPageToken,files(id,name,mimeType,size,createdTime,modifiedTime,headRevisionId)")
+	query.Set("pageSize", strconv.Itoa(pageSize))
+	query.Set("spaces", "drive")
+	// Shared drives are a different storage pool with their own quota, so
+	// they are deliberately out of scope here.
+	query.Set("supportsAllDrives", "false")
+	if input.PageToken != "" {
+		query.Set("pageToken", input.PageToken)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, googleDriveFilesURL+"?"+query.Encode(), nil)
+	if err != nil {
+		return nil, usecase.NewAppError(usecase.ErrorCodeFileUploadFailed, http.StatusInternalServerError, "failed to create list HTTP request", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, classifyGoogleStorageNetworkError(err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return nil, usecase.NewAppError(usecase.ErrorCodeStorageProviderUnavailable, http.StatusServiceUnavailable, "failed to read list response", err)
+	}
+
+	if resp.StatusCode >= http.StatusBadRequest {
+		return nil, classifyGoogleStorageHTTPError(resp.StatusCode, string(respBody))
+	}
+
+	var listResp struct {
+		NextPageToken string `json:"nextPageToken"`
+		Files         []struct {
+			ID             string `json:"id"`
+			Name           string `json:"name"`
+			MimeType       string `json:"mimeType"`
+			Size           string `json:"size"`
+			CreatedTime    string `json:"createdTime"`
+			ModifiedTime   string `json:"modifiedTime"`
+			HeadRevisionID string `json:"headRevisionId"`
+		} `json:"files"`
+	}
+
+	if err := json.Unmarshal(respBody, &listResp); err != nil {
+		return nil, usecase.NewAppError(usecase.ErrorCodeFileUploadFailed, http.StatusBadGateway, "invalid list response from Google Drive", err)
+	}
+
+	files := make([]domain.StorageFileMetadata, 0, len(listResp.Files))
+	for _, item := range listResp.Files {
+		// Google-native documents report no size; they occupy no quota either,
+		// so zero is the honest number rather than a missing one.
+		var sizeBytes int64
+		if parsed, err := strconv.ParseInt(item.Size, 10, 64); err == nil {
+			sizeBytes = parsed
+		}
+
+		createdTime := time.Now().UTC()
+		if parsed, err := time.Parse(time.RFC3339, item.CreatedTime); err == nil {
+			createdTime = parsed
+		}
+		modifiedTime := createdTime
+		if parsed, err := time.Parse(time.RFC3339, item.ModifiedTime); err == nil {
+			modifiedTime = parsed
+		}
+
+		files = append(files, domain.StorageFileMetadata{
+			ProviderFileID: item.ID,
+			Filename:       item.Name,
+			MimeType:       item.MimeType,
+			SizeBytes:      sizeBytes,
+			CreatedTime:    createdTime,
+			ModifiedTime:   modifiedTime,
+			ETag:           item.HeadRevisionID,
+		})
+	}
+
+	return &domain.StorageListPage{Files: files, NextPageToken: listResp.NextPageToken}, nil
+}
+
+// accessToken decrypts the stored refresh token and exchanges it. Every call
+// that talks to Drive needs this, so it lives in one place.
+func (p *GoogleDriveStorageProvider) accessToken(ctx context.Context, account *domain.CloudAccount) (string, error) {
+	if strings.TrimSpace(account.RefreshToken) == "" {
+		return "", usecase.NewAppError(usecase.ErrorCodeStorageAuthenticationFailed, http.StatusUnauthorized, "account missing refresh token", nil)
+	}
+
+	refreshToken, err := p.encryptor.Decrypt(account.RefreshToken)
+	if err != nil {
+		return "", usecase.NewAppError(usecase.ErrorCodeStorageAuthenticationFailed, http.StatusUnauthorized, "failed to decrypt refresh token", err)
+	}
+
+	token, err := p.oauthConfig.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken}).Token()
+	if err != nil {
+		return "", classifyGoogleStorageAuthError(err)
+	}
+	return token.AccessToken, nil
+}
+
+// googleNativeExportMIME maps a Google-native document to the format it is
+// exported as. Docs, Sheets and Slides have no bytes of their own, so
+// alt=media returns an error for them and only /export works.
+func googleNativeExportMIME(mimeType string) (string, bool) {
+	switch mimeType {
+	case "application/vnd.google-apps.document":
+		return "application/pdf", true
+	case "application/vnd.google-apps.spreadsheet":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", true
+	case "application/vnd.google-apps.presentation":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation", true
+	case "application/vnd.google-apps.drawing":
+		return "image/png", true
+	case "application/vnd.google-apps.script":
+		return "application/vnd.google-apps.script+json", true
+	}
+	if strings.HasPrefix(mimeType, "application/vnd.google-apps.") {
+		return "application/pdf", true
+	}
+	return "", false
 }
 
 func classifyGoogleStorageNetworkError(err error) error {

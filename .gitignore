@@ -78,3 +78,9 @@ cumulus-*
 *.sqlite
 *.sqlite3
 
+# Frontend (React / Vite)
+node_modules/
+web/node_modules/
+web/dist/
+
+*.claude

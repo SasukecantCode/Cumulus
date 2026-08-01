@@ -70,13 +70,15 @@ func main() {
 	uploadScheduler := scheduler.NewUploadScheduler(workspaceRepo, settingsRepo)
 	uploadService := usecase.NewUploadService(workspaceRepo, fileRepo, chunkRepo, storageRegistry, uploadScheduler)
 	fileService := usecase.NewFileService(workspaceRepo, fileRepo, chunkRepo, cloudAccountRepo, storageRegistry)
+	driveSyncService := usecase.NewDriveSyncService(workspaceRepo, fileRepo, chunkRepo, storageRegistry)
 
 	authHandler := handlers.NewAuthHandler(authService, accountService, workspaceService, quotaService)
 	uploadHandler := handlers.NewUploadHandler(uploadService)
 	fileHandler := handlers.NewFileHandler(fileService)
+	syncHandler := handlers.NewSyncHandler(driveSyncService)
 
 	router := gin.Default()
-	routes.Register(router, authHandler, uploadHandler, fileHandler)
+	routes.Register(router, authHandler, uploadHandler, fileHandler, syncHandler)
 
 	if err := router.Run(":" + cfg.HTTPPort); err != nil {
 		log.Fatal(err)

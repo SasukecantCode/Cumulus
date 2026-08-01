@@ -229,6 +229,14 @@ func CreateFilesTable(db *gorm.DB) error {
 
 	_ = db.Exec(`ALTER TABLE files ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL;`)
 
+	// origin distinguishes rows Cumulus uploaded from rows adopted out of the
+	// provider by the drive sync. Existing rows predate the sync, so they are
+	// all Cumulus uploads.
+	if err := db.Exec(`ALTER TABLE files ADD COLUMN IF NOT EXISTS origin VARCHAR(20) NOT NULL DEFAULT 'CUMULUS';`).Error; err != nil {
+		log.Printf("Error adding files.origin column: %v", err)
+		return err
+	}
+
 	indices := []string{
 		"CREATE INDEX IF NOT EXISTS idx_files_workspace_id ON files(workspace_id);",
 		"CREATE INDEX IF NOT EXISTS idx_files_cloud_account_id ON files(cloud_account_id);",
@@ -237,6 +245,9 @@ func CreateFilesTable(db *gorm.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_files_provider_file_id ON files(provider_file_id);",
 		"CREATE INDEX IF NOT EXISTS idx_files_status ON files(status);",
 		"CREATE INDEX IF NOT EXISTS idx_files_deleted_at ON files(deleted_at);",
+		"CREATE INDEX IF NOT EXISTS idx_files_origin ON files(origin);",
+		// the drive sync's hot lookup: every row for one account
+		"CREATE INDEX IF NOT EXISTS idx_files_account_provider_file ON files(cloud_account_id, provider_file_id);",
 	}
 
 	for _, idx := range indices {

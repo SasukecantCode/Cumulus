@@ -54,6 +54,41 @@ func (r *FileRepository) FindByProviderFileID(ctx context.Context, providerFileI
 	return &file, nil
 }
 
+// ListForSync returns every row Cumulus holds for one account, deleted rows
+// included. A file that was removed here but still sits in Drive should be
+// revived rather than inserted a second time.
+func (r *FileRepository) ListForSync(ctx context.Context, query domain.FileSyncQuery) ([]*domain.File, error) {
+	var files []*domain.File
+	err := r.db.WithContext(ctx).
+		Where("workspace_id = ? AND cloud_account_id = ?", query.WorkspaceID, query.CloudAccountID).
+		Find(&files).Error
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+func (r *FileRepository) CreateBatch(ctx context.Context, files []*domain.File) error {
+	if len(files) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).CreateInBatches(files, 200).Error
+}
+
+// MarkMissingFromProvider soft-deletes rows whose provider object is gone.
+// The caller is responsible for only passing rows it is safe to retire.
+func (r *FileRepository) MarkMissingFromProvider(ctx context.Context, ids []uint64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	return r.db.WithContext(ctx).Model(&domain.File{}).Where("id IN ?", ids).Updates(map[string]any{
+		"status":     domain.FileStatusDeleted,
+		"deleted_at": now,
+		"updated_at": now,
+	}).Error
+}
+
 func (r *FileRepository) UpdateMetadata(ctx context.Context, file *domain.File) error {
 	return r.db.WithContext(ctx).Model(file).Updates(map[string]any{
 		"provider_file_id":  file.ProviderFileID,

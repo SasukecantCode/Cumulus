@@ -314,3 +314,7 @@ func TestFileService_TestCase5_DeleteChunkedFile(t *testing.T) {
 		t.Errorf("expected logical file status DELETED, got %s", f.Status)
 	}
 }
+
+func (m *mockFileServiceStorageProvider) List(ctx context.Context, account *domain.CloudAccount, input domain.StorageListInput) (*domain.StorageListPage, error) {
+	return &domain.StorageListPage{}, nil
+}

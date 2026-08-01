@@ -51,7 +51,7 @@ run-backend: db-up
 # Target to run standalone frontend
 run-frontend:
 	@echo "Starting Cumulus Frontend UI on http://localhost:$(FRONTEND_PORT)..."
-	python3 -m http.server $(FRONTEND_PORT) --directory web
+	cd web && npm run dev -- --port $(FRONTEND_PORT)
 
 frontend: run-frontend
 ui: run-frontend
@@ -63,7 +63,7 @@ run: db-up
 	@echo "  Backend API:  http://localhost:$(HTTP_PORT)"
 	@echo "  Frontend UI:  http://localhost:$(FRONTEND_PORT)"
 	@echo "=================================================="
-	@python3 -m http.server $(FRONTEND_PORT) --directory web > /dev/null 2>&1 & FRONTEND_PID=$$!; \
+	@cd web && npm run dev -- --port $(FRONTEND_PORT) > /dev/null 2>&1 & FRONTEND_PID=$$!; \
 	trap 'kill -9 $$FRONTEND_PID 2>/dev/null || true' EXIT INT TERM; \
 	HTTP_PORT=$(HTTP_PORT) \
 	DATABASE_URL=$(DATABASE_URL) \

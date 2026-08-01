@@ -78,10 +78,22 @@ func (h *AuthHandler) GoogleCallback(c *gin.Context) {
 	if targetWS > 0 {
 		_, quota, err = h.workspaceService.ConnectSecondaryAccount(c.Request.Context(), targetWS, account)
 		if err != nil {
-			if appErr, ok := err.(*usecase.AppError); ok && appErr.Code == usecase.ErrorCodeCloudAccountAlreadyAttached {
-				attachError = "already_attached"
-				ws, _, _ := h.workspaceService.GetWorkspaceStorageNodes(c.Request.Context(), targetWS)
-				workspace = ws
+			if appErr, ok := err.(*usecase.AppError); ok {
+				if appErr.Code == usecase.ErrorCodeCloudAccountAlreadyAttached {
+					attachError = "already_attached"
+					ws, _, _ := h.workspaceService.GetWorkspaceStorageNodes(c.Request.Context(), targetWS)
+					workspace = ws
+				} else if appErr.Code == usecase.ErrorCodeWorkspaceNotFound {
+					// Target workspace does not exist yet -> resolve or create workspace for primary account
+					workspace, _, quota, err = h.workspaceService.ResolveLoginWorkspace(c.Request.Context(), account)
+					if err != nil {
+						writeError(c, err)
+						return
+					}
+				} else {
+					writeError(c, err)
+					return
+				}
 			} else {
 				writeError(c, err)
 				return

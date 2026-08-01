@@ -1,0 +1,315 @@
+@import "tailwindcss";
+
+/* ============================================================
+   CUMULUS — DESIGN SYSTEM
+   ------------------------------------------------------------
+   Two colours, held still.
+
+     brand  — the sky blue from the landing page, used for every
+              interactive and every accent, and nothing else.
+     slate  — a cool neutral ramp (page, card, line, ink, muted)
+              that carries all structure and all text.
+
+   There is no theme that drifts, no palette that animates, and no
+   third hue. Motion is limited to hover/press feedback and a single
+   spinner. Everything below is the vocabulary the components use;
+   they add layout with Tailwind utilities and nothing more.
+   ============================================================ */
+
+@theme {
+  --font-sans: 'Outfit', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Quicksand', 'Outfit', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  /* brand ---------------------------------------------------- */
+  --color-brand: #2b8ed6;
+  --color-brand-strong: #1e74b4;
+  --color-brand-ink: #0d5c94;
+  --color-brand-soft: #e8f3fc;
+  --color-brand-line: #c5e0f4;
+
+  /* neutrals ------------------------------------------------- */
+  --color-page: #eff5fa;
+  --color-card: #ffffff;
+  --color-sunken: #f4f8fc;
+  --color-line: #dce7f1;
+  --color-ink: #17293c;
+  --color-muted: #5f7489;
+
+  /* status --------------------------------------------------- */
+  --color-danger: #c0432f;
+  --color-ok: #2b8f79;
+
+  /* one radius scale, used everywhere ------------------------ */
+  --radius-card: 14px;
+  --radius-control: 10px;
+  --radius-tile: 10px;
+
+  --shadow-card: 0 1px 2px rgba(23, 41, 60, 0.05);
+  --shadow-raised: 0 2px 4px rgba(23, 41, 60, 0.06), 0 12px 28px -16px rgba(23, 41, 60, 0.22);
+  --shadow-overlay: 0 24px 60px -20px rgba(23, 41, 60, 0.35);
+}
+
+@layer base {
+  html {
+    background: var(--color-page);
+    color: var(--color-ink);
+  }
+
+  body {
+    min-height: 100vh;
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--color-brand-soft);
+    color: var(--color-brand-ink);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c3d4e3;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #a9c0d4;
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* ---------- surfaces ---------- */
+
+  /* the default container: a white card on the page tint */
+  .card {
+    background: var(--color-card);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* a card you can click — lifts a little, never moves sideways */
+  .card-interactive {
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease,
+      transform 0.15s ease;
+  }
+  .card-interactive:hover {
+    border-color: var(--color-brand-line);
+    box-shadow: var(--shadow-raised);
+    transform: translateY(-2px);
+  }
+  .card-interactive:active {
+    transform: translateY(0);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* a recessed area inside a card: readouts, drop zones, glyph tiles */
+  .sunken {
+    background: var(--color-sunken);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-control);
+  }
+
+  /* ---------- buttons ---------- */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--color-line);
+    background: var(--color-card);
+    color: var(--color-ink);
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+  .btn:hover:not(:disabled) {
+    background: var(--color-brand-soft);
+    border-color: var(--color-brand-line);
+    color: var(--color-brand-ink);
+  }
+  .btn:active:not(:disabled) {
+    background: #ddedf9;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--color-brand);
+    border-color: var(--color-brand);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-brand-strong);
+    border-color: var(--color-brand-strong);
+    color: #fff;
+  }
+  .btn-primary:active:not(:disabled) {
+    background: var(--color-brand-ink);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: transparent;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #fbecea;
+    border-color: #f0cec8;
+    color: var(--color-danger);
+  }
+
+  /* pressed / current state, shared by nav items and toggles */
+  .is-active {
+    background: var(--color-brand-soft);
+    border-color: var(--color-brand-line);
+    color: var(--color-brand-ink);
+  }
+
+  /* ---------- input ---------- */
+
+  .input {
+    width: 100%;
+    background: var(--color-card);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-control);
+    color: var(--color-ink);
+    font-family: inherit;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .input::placeholder {
+    color: var(--color-muted);
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--color-brand);
+    box-shadow: 0 0 0 3px var(--color-brand-soft);
+  }
+  .input[type='search']::-webkit-search-cancel-button {
+    display: none;
+  }
+
+  /* ---------- text roles ---------- */
+
+  .label {
+    display: block;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  .section-title {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--color-ink);
+  }
+
+  /* ---------- chip ---------- */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-brand-line);
+    background: var(--color-brand-soft);
+    color: var(--color-brand-ink);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  .chip-neutral {
+    border-color: var(--color-line);
+    background: var(--color-sunken);
+    color: var(--color-muted);
+  }
+
+  /* ---------- meter ---------- */
+
+  .meter {
+    height: 6px;
+    border-radius: 999px;
+    background: #e2ebf3;
+    overflow: hidden;
+  }
+  .meter-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: var(--color-brand);
+    transition: width 0.4s ease;
+  }
+}
+
+@layer utilities {
+  /* the single gutter authority for full-width screens */
+  .shell {
+    width: 100%;
+    max-width: 1440px;
+    margin-inline: auto;
+    padding-inline: 1.25rem;
+  }
+  @media (min-width: 1024px) {
+    .shell {
+      padding-inline: 2rem;
+    }
+  }
+}
+
+/* Motion is deliberately minimal: a spinner and a short fade for
+   things that appear. No looping decoration anywhere in the app. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.18s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

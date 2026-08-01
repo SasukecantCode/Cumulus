@@ -145,6 +145,7 @@ func (s *UploadService) uploadSingleNode(
 		SizeBytes:        sizeBytes,
 		Checksum:         "",
 		Status:           domain.FileStatusUploading,
+		Origin:           domain.FileOriginCumulus,
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	}
@@ -242,6 +243,7 @@ func (s *UploadService) uploadChunked(
 		SizeBytes:        sizeBytes,
 		Checksum:         "",
 		Status:           domain.FileStatusUploading,
+		Origin:           domain.FileOriginCumulus,
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	}

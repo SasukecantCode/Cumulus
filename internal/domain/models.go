@@ -184,6 +184,18 @@ type FileListFilter struct {
 	Status      FileStatus
 }
 
+// FileOrigin records how a row got here. It matters for reconciliation: an
+// imported row that disappears from the provider was deleted in the provider
+// and should follow, whereas a Cumulus upload may be a chunked object whose
+// parent row has no provider file of its own and must never be touched by a
+// listing pass.
+type FileOrigin string
+
+const (
+	FileOriginCumulus FileOrigin = "CUMULUS"
+	FileOriginDrive   FileOrigin = "DRIVE"
+)
+
 type File struct {
 	ID               uint64  `gorm:"primaryKey"`
 	WorkspaceID      uint64  `gorm:"index:idx_files_workspace_id"`
@@ -198,6 +210,7 @@ type File struct {
 	SizeBytes        int64
 	Checksum         string     `gorm:"type:varchar(64)"`
 	Status           FileStatus `gorm:"type:varchar(50);index:idx_files_status"`
+	Origin           FileOrigin `gorm:"type:varchar(20);index:idx_files_origin"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	DeletedAt        *time.Time `gorm:"index:idx_files_deleted_at"`
