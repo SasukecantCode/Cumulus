@@ -34,6 +34,19 @@ func (r *CloudAccountRepository) CreateOrUpdate(ctx context.Context, account *do
 	return result.Error
 }
 
+// FindByID retrieves a cloud account by primary key ID
+func (r *CloudAccountRepository) FindByID(ctx context.Context, id uint64) (*domain.CloudAccount, error) {
+	var account domain.CloudAccount
+	result := r.db.WithContext(ctx).First(&account, id)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &account, nil
+}
+
 // FindByProviderAccount retrieves a cloud account by provider type and provider account ID
 func (r *CloudAccountRepository) FindByProviderAccount(ctx context.Context, providerType, providerAccountID string) (*domain.CloudAccount, error) {
 	var account domain.CloudAccount

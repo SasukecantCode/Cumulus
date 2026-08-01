@@ -197,6 +197,121 @@ func randomWorkspaceUUID() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+// CreateFilesTable creates the files table
+func CreateFilesTable(db *gorm.DB) error {
+	sql := `
+	CREATE TABLE IF NOT EXISTS files (
+		id BIGSERIAL PRIMARY KEY,
+		workspace_id BIGINT NOT NULL,
+		cloud_account_id BIGINT NOT NULL,
+		parent_id BIGINT NULL,
+		provider VARCHAR(50) NOT NULL,
+		provider_file_id VARCHAR(255) NOT NULL DEFAULT '',
+		filename VARCHAR(255) NOT NULL,
+		original_filename VARCHAR(255) NOT NULL,
+		mime_type VARCHAR(255) NOT NULL,
+		extension VARCHAR(50) NOT NULL DEFAULT '',
+		size_bytes BIGINT NOT NULL DEFAULT 0,
+		checksum VARCHAR(64) NOT NULL DEFAULT '',
+		status VARCHAR(50) NOT NULL DEFAULT 'UPLOADING',
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		deleted_at TIMESTAMP NULL,
+		CONSTRAINT fk_files_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+		CONSTRAINT fk_files_cloud_account FOREIGN KEY (cloud_account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE
+	);
+	`
+
+	if err := db.Exec(sql).Error; err != nil {
+		log.Printf("Error creating files table: %v", err)
+		return err
+	}
+
+	_ = db.Exec(`ALTER TABLE files ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL;`)
+
+	indices := []string{
+		"CREATE INDEX IF NOT EXISTS idx_files_workspace_id ON files(workspace_id);",
+		"CREATE INDEX IF NOT EXISTS idx_files_cloud_account_id ON files(cloud_account_id);",
+		"CREATE INDEX IF NOT EXISTS idx_files_parent_id ON files(parent_id);",
+		"CREATE INDEX IF NOT EXISTS idx_files_provider ON files(provider);",
+		"CREATE INDEX IF NOT EXISTS idx_files_provider_file_id ON files(provider_file_id);",
+		"CREATE INDEX IF NOT EXISTS idx_files_status ON files(status);",
+		"CREATE INDEX IF NOT EXISTS idx_files_deleted_at ON files(deleted_at);",
+	}
+
+	for _, idx := range indices {
+		if err := db.Exec(idx).Error; err != nil {
+			log.Printf("Error creating index (%s): %v", idx, err)
+			return err
+		}
+	}
+
+	log.Println("files table created successfully")
+	return nil
+}
+
+// CreateWorkspaceSettingsTable creates the workspace_settings table
+func CreateWorkspaceSettingsTable(db *gorm.DB) error {
+	sql := `
+	CREATE TABLE IF NOT EXISTS workspace_settings (
+		workspace_id BIGINT PRIMARY KEY,
+		upload_strategy VARCHAR(50) NOT NULL DEFAULT 'fill_first',
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		CONSTRAINT fk_workspace_settings_workspace FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+	);
+	`
+	if err := db.Exec(sql).Error; err != nil {
+		log.Printf("Error creating workspace_settings table: %v", err)
+		return err
+	}
+
+	log.Println("workspace_settings table created successfully")
+	return nil
+}
+
+// CreateFileChunksTable creates the file_chunks table
+func CreateFileChunksTable(db *gorm.DB) error {
+	sql := `
+	CREATE TABLE IF NOT EXISTS file_chunks (
+		id BIGSERIAL PRIMARY KEY,
+		file_id BIGINT NOT NULL,
+		cloud_account_id BIGINT NOT NULL,
+		provider VARCHAR(50) NOT NULL,
+		provider_file_id VARCHAR(255) NOT NULL DEFAULT '',
+		chunk_index INT NOT NULL,
+		offset_bytes BIGINT NOT NULL,
+		size_bytes BIGINT NOT NULL,
+		checksum VARCHAR(64) NOT NULL DEFAULT '',
+		status VARCHAR(50) NOT NULL DEFAULT 'UPLOADING',
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		CONSTRAINT fk_file_chunks_file FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+		CONSTRAINT fk_file_chunks_cloud_account FOREIGN KEY (cloud_account_id) REFERENCES cloud_accounts(id) ON DELETE CASCADE
+	);
+	`
+	if err := db.Exec(sql).Error; err != nil {
+		log.Printf("Error creating file_chunks table: %v", err)
+		return err
+	}
+
+	indices := []string{
+		"CREATE INDEX IF NOT EXISTS idx_file_chunks_file_id ON file_chunks(file_id);",
+		"CREATE INDEX IF NOT EXISTS idx_file_chunks_cloud_account_id ON file_chunks(cloud_account_id);",
+		"CREATE INDEX IF NOT EXISTS idx_file_chunks_chunk_index ON file_chunks(chunk_index);",
+	}
+
+	for _, idx := range indices {
+		if err := db.Exec(idx).Error; err != nil {
+			log.Printf("Error creating index (%s): %v", idx, err)
+			return err
+		}
+	}
+
+	log.Println("file_chunks table created successfully")
+	return nil
+}
+
 // Migrate runs all database migrations
 func Migrate(db *gorm.DB) error {
 	if err := CreateCloudAccountsTable(db); err != nil {
@@ -205,5 +320,14 @@ func Migrate(db *gorm.DB) error {
 	if err := CreateCloudQuotasTable(db); err != nil {
 		return err
 	}
-	return CreateWorkspacesTable(db)
+	if err := CreateWorkspacesTable(db); err != nil {
+		return err
+	}
+	if err := CreateFilesTable(db); err != nil {
+		return err
+	}
+	if err := CreateWorkspaceSettingsTable(db); err != nil {
+		return err
+	}
+	return CreateFileChunksTable(db)
 }

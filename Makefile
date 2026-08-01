@@ -1,4 +1,4 @@
-.PHONY: all build run run-backend run-frontend frontend ui stop stop-backend stop-frontend test clean db-up db-down dev
+.PHONY: all build run run-backend run-frontend frontend ui stop stop-backend stop-frontend test clean db-up db-stop db-down dev
 
 BINARY_NAME=cumulus
 HTTP_PORT ?= 8080
@@ -13,19 +13,42 @@ build:
 	@echo "Building Cumulus backend binary..."
 	go build -o $(BINARY_NAME) ./cmd/cumulus
 
-# Alias for backend
-run: run-backend
+# Ensure Docker PostgreSQL database container is started
+db-up:
+	@echo "Ensuring PostgreSQL database container (cumulus-db) is running..."
+	@if [ $$(docker ps -q -f name=^cumulus-db$$ | wc -l) -eq 0 ]; then \
+		if [ $$(docker ps -a -q -f name=^cumulus-db$$ | wc -l) -gt 0 ]; then \
+			docker start cumulus-db >/dev/null; \
+		else \
+			docker run -d --name cumulus-db -p 5432:5432 \
+				-e POSTGRES_USER=postgres \
+				-e POSTGRES_PASSWORD=postgres \
+				-e POSTGRES_DB=cumulus \
+				postgres:15-alpine >/dev/null; \
+		fi \
+	fi
+	@echo "PostgreSQL database container is running."
 
-run-backend:
-	@echo "Starting Cumulus backend API..."
-	@echo "Backend API: http://localhost:$(HTTP_PORT)"
+# Stop Docker DB container
+db-stop:
+	@echo "Stopping PostgreSQL database container..."
+	@docker stop cumulus-db >/dev/null 2>&1 || true
+
+# Remove Docker DB container
+db-down: db-stop
+	@echo "Removing PostgreSQL database container..."
+	@docker rm cumulus-db >/dev/null 2>&1 || true
+
+# Target to run standalone backend
+run-backend: db-up
+	@echo "Starting Cumulus backend API on http://localhost:$(HTTP_PORT)..."
 	HTTP_PORT=$(HTTP_PORT) \
 	DATABASE_URL=$(DATABASE_URL) \
 	GOOGLE_SCOPES=$(GOOGLE_SCOPES) \
 	ENCRYPTION_KEY=$(ENCRYPTION_KEY) \
 	go run ./cmd/cumulus
 
-# Target to start frontend UI on port 3000
+# Target to run standalone frontend
 run-frontend:
 	@echo "Starting Cumulus Frontend UI on http://localhost:$(FRONTEND_PORT)..."
 	python3 -m http.server $(FRONTEND_PORT) --directory web
@@ -33,41 +56,44 @@ run-frontend:
 frontend: run-frontend
 ui: run-frontend
 
-dev: db-up run-backend
+# Starts backend & frontend together after starting Docker database
+run: db-up
+	@echo "=================================================="
+	@echo "  Starting Cumulus Development Stack..."
+	@echo "  Backend API:  http://localhost:$(HTTP_PORT)"
+	@echo "  Frontend UI:  http://localhost:$(FRONTEND_PORT)"
+	@echo "=================================================="
+	@python3 -m http.server $(FRONTEND_PORT) --directory web > /dev/null 2>&1 & FRONTEND_PID=$$!; \
+	trap 'kill -9 $$FRONTEND_PID 2>/dev/null || true' EXIT INT TERM; \
+	HTTP_PORT=$(HTTP_PORT) \
+	DATABASE_URL=$(DATABASE_URL) \
+	GOOGLE_SCOPES=$(GOOGLE_SCOPES) \
+	ENCRYPTION_KEY=$(ENCRYPTION_KEY) \
+	go run ./cmd/cumulus
+
+dev: run
 
 stop-backend:
 	@echo "Stopping Cumulus backend (port $(HTTP_PORT))..."
 	@pids="$$(lsof -t -i :$(HTTP_PORT) 2>/dev/null || true)"; \
 	if [ -n "$$pids" ]; then \
-		kill $$pids || true; \
-	else \
-		pkill -f "go run ./cmd/cumulus" || true; \
-		pkill -f "/cumulus$$" || true; \
-	fi
+		kill -9 $$pids 2>/dev/null || true; \
+	fi; \
+	pkill -x "cumulus" 2>/dev/null || true
+
 
 stop-frontend:
 	@echo "Stopping Cumulus frontend (port $(FRONTEND_PORT))..."
 	@pids="$$(lsof -t -i :$(FRONTEND_PORT) 2>/dev/null || true)"; \
 	if [ -n "$$pids" ]; then \
-		kill $$pids || true; \
-	else \
-		pkill -f "http.server $(FRONTEND_PORT)" || true; \
-	fi
+		kill -9 $$pids 2>/dev/null || true; \
+	fi; \
+	pkill -f "[h]ttp.server.*$(FRONTEND_PORT)" 2>/dev/null || true
 
-stop: stop-backend stop-frontend
 
-db-up:
-	@echo "Starting local PostgreSQL database container..."
-	docker run -d --name cumulus-db -p 5432:5432 \
-		-e POSTGRES_USER=postgres \
-		-e POSTGRES_PASSWORD=postgres \
-		-e POSTGRES_DB=cumulus \
-		postgres:15-alpine || docker start cumulus-db
 
-db-down:
-	@echo "Stopping local PostgreSQL database container..."
-	docker stop cumulus-db || true
-	docker rm cumulus-db || true
+# Stops backend, frontend, and PostgreSQL Docker container
+stop: stop-backend stop-frontend db-stop
 
 test:
 	@echo "Running tests..."

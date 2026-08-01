@@ -1,6 +1,10 @@
 package domain
 
-import "context"
+import (
+	"context"
+	"io"
+	"time"
+)
 
 type UserRepository interface {
 	Create(ctx context.Context, user *User) error
@@ -10,6 +14,7 @@ type UserRepository interface {
 
 type CloudAccountRepository interface {
 	CreateOrUpdate(ctx context.Context, account *CloudAccount) error
+	FindByID(ctx context.Context, id uint64) (*CloudAccount, error)
 	FindByProviderAccount(ctx context.Context, providerType, providerAccountID string) (*CloudAccount, error)
 	FindByEmail(ctx context.Context, email string) ([]*CloudAccount, error)
 	Delete(ctx context.Context, id uint64) error
@@ -40,31 +45,26 @@ type QuotaProviderRegistry interface {
 	Get(providerType string) (QuotaProvider, error)
 }
 
-type GoogleAccountRepository interface {
-	Create(ctx context.Context, account *GoogleAccount) error
-	Update(ctx context.Context, account *GoogleAccount) error
-	Delete(ctx context.Context, id uint64) error
-	FindByID(ctx context.Context, id uint64) (*GoogleAccount, error)
-	FindByUserID(ctx context.Context, userID uint64) ([]GoogleAccount, error)
-	FindEligibleForUpload(ctx context.Context, userID uint64) ([]GoogleAccount, error)
-}
-
 type FileRepository interface {
 	Create(ctx context.Context, file *File) error
 	FindByID(ctx context.Context, id uint64) (*File, error)
-	FindByOwnerID(ctx context.Context, ownerID uint64) ([]File, error)
+	FindByWorkspace(ctx context.Context, workspaceID uint64) ([]*File, error)
+	ListWorkspaceFiles(ctx context.Context, filter FileListFilter) ([]*File, int64, error)
+	FindByProviderFileID(ctx context.Context, providerFileID string) (*File, error)
+	UpdateMetadata(ctx context.Context, file *File) error
+	UpdateStatus(ctx context.Context, id uint64, status FileStatus) error
+	SoftDelete(ctx context.Context, id uint64) error
+	Rename(ctx context.Context, id uint64, newFilename string) error
+	Move(ctx context.Context, id uint64, targetParentID *uint64) error
 	Delete(ctx context.Context, id uint64) error
 }
 
-type FolderRepository interface {
-	Create(ctx context.Context, folder *Folder) error
-	FindByID(ctx context.Context, id uint64) (*Folder, error)
-	FindByOwnerID(ctx context.Context, ownerID uint64) ([]Folder, error)
-}
-
-type StoragePolicyRepository interface {
-	GetForOwner(ctx context.Context, ownerID uint64) (*StoragePolicy, error)
-	Save(ctx context.Context, policy *StoragePolicy) error
+type FileChunkRepository interface {
+	Create(ctx context.Context, chunk *FileChunk) error
+	CreateBatch(ctx context.Context, chunks []*FileChunk) error
+	FindByFileID(ctx context.Context, fileID uint64) ([]*FileChunk, error)
+	DeleteByFileID(ctx context.Context, fileID uint64) error
+	UpdateStatus(ctx context.Context, id uint64, status FileStatus) error
 }
 
 type OAuthProvider interface {
@@ -77,21 +77,46 @@ type QuotaProvider interface {
 	GetQuota(ctx context.Context, refreshToken string) (QuotaSnapshot, error)
 }
 
-type DriveProvider interface {
-	Upload(ctx context.Context, input UploadObject) (UploadResult, error)
-	Download(ctx context.Context, fileID string) ([]byte, error)
-	Delete(ctx context.Context, fileID string) error
-	Rename(ctx context.Context, fileID string, newName string) error
-	CreateFolder(ctx context.Context, name string, parentID string) (string, error)
-	GetQuota(ctx context.Context) (StorageQuota, error)
+type StorageUploadInput struct {
+	Filename  string
+	MimeType  string
+	SizeBytes int64
+	Reader    io.Reader
 }
 
-type Scheduler interface {
-	ChooseAccount(ctx context.Context, request ScheduleRequest) (*GoogleAccount, error)
+type UploadedObject struct {
+	ProviderFileID string
+	Filename       string
+	MimeType       string
+	SizeBytes      int64
+	CreatedTime    time.Time
+	ModifiedTime   time.Time
+	ETag           string
+	RawResponse    string
 }
 
-type Checksummer interface {
-	Checksum(data []byte) (string, error)
+type StorageFileMetadata struct {
+	ProviderFileID string
+	Filename       string
+	MimeType       string
+	SizeBytes      int64
+	CreatedTime    time.Time
+	ModifiedTime   time.Time
+	ETag           string
+}
+
+type StorageProvider interface {
+	Upload(ctx context.Context, account *CloudAccount, input StorageUploadInput) (*UploadedObject, error)
+	Download(ctx context.Context, account *CloudAccount, providerFileID string) (io.ReadCloser, error)
+	Delete(ctx context.Context, account *CloudAccount, providerFileID string) error
+	Rename(ctx context.Context, account *CloudAccount, providerFileID string, newName string) error
+	Move(ctx context.Context, account *CloudAccount, providerFileID string, targetFolderID string) error
+	GetMetadata(ctx context.Context, account *CloudAccount, providerFileID string) (*StorageFileMetadata, error)
+}
+
+type StorageProviderRegistry interface {
+	Register(providerType string, provider StorageProvider)
+	Get(providerType string) (StorageProvider, error)
 }
 
 type OAuthTokens struct {
@@ -106,27 +131,6 @@ type OAuthUserProfile struct {
 	Email           string
 }
 
-type UploadObject struct {
-	OwnerID         uint64
-	Filename        string
-	MimeType        string
-	Size            int64
-	Checksum        string
-	GoogleAccountID uint64
-	Payload         []byte
-}
-
-type UploadResult struct {
-	GoogleFileID string
-	FolderID     string
-}
-
-type StorageQuota struct {
-	Total     int64
-	Used      int64
-	Remaining int64
-}
-
 type QuotaSnapshot struct {
 	TotalBytes     int64
 	UsedBytes      int64
@@ -134,8 +138,11 @@ type QuotaSnapshot struct {
 	RawResponse    string
 }
 
-type ScheduleRequest struct {
-	OwnerID  uint64
-	Strategy UploadStrategy
-	Size     int64
+type UploadScheduler interface {
+	SelectNode(ctx context.Context, workspaceID uint64, upload *UploadContext) (*WorkspaceStorageNode, error)
+}
+
+type WorkspaceSettingsRepository interface {
+	GetByWorkspaceID(ctx context.Context, workspaceID uint64) (*WorkspaceSettings, error)
+	Save(ctx context.Context, settings *WorkspaceSettings) error
 }

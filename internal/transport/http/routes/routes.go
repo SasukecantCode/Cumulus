@@ -7,10 +7,15 @@ import (
 
 func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		origin := c.Request.Header.Get("Origin")
+		if origin != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+			c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
 
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
@@ -21,7 +26,7 @@ func CORSMiddleware() gin.HandlerFunc {
 	}
 }
 
-func Register(router *gin.Engine, authHandler *handlers.AuthHandler) {
+func Register(router *gin.Engine, authHandler *handlers.AuthHandler, uploadHandler *handlers.UploadHandler, fileHandler *handlers.FileHandler) {
 	router.Use(CORSMiddleware())
 
 	router.GET("/", authHandler.ServeDashboard)
@@ -31,4 +36,14 @@ func Register(router *gin.Engine, authHandler *handlers.AuthHandler) {
 	router.GET("/auth/google/callback", authHandler.GoogleCallback)
 	router.POST("/workspaces/:workspaceID/accounts/google", authHandler.ConnectSecondaryGoogleAccount)
 	router.DELETE("/workspaces/:workspaceID/accounts/:cloudAccountID", authHandler.DisconnectAccount)
+	router.POST("/workspaces/:workspaceID/files", uploadHandler.UploadFileHandler)
+
+	if fileHandler != nil {
+		router.GET("/workspaces/:workspaceID/files", fileHandler.ListFilesHandler)
+		router.GET("/workspaces/:workspaceID/files/:fileID", fileHandler.GetFileHandler)
+		router.GET("/workspaces/:workspaceID/files/:fileID/download", fileHandler.DownloadFileHandler)
+		router.DELETE("/workspaces/:workspaceID/files/:fileID", fileHandler.DeleteFileHandler)
+		router.PATCH("/workspaces/:workspaceID/files/:fileID", fileHandler.RenameFileHandler)
+		router.PATCH("/workspaces/:workspaceID/files/:fileID/move", fileHandler.MoveFileHandler)
+	}
 }

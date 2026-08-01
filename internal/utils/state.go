@@ -47,7 +47,13 @@ func (m *InMemoryStateManager) GenerateStateWithContext(workspaceID uint64, uiPo
 	state := fmt.Sprintf("ws_%d_ui_%s_%s", workspaceID, uiPort, randToken)
 
 	m.mu.Lock()
-	m.states[state] = time.Now().Add(m.ttl)
+	now := time.Now()
+	for k, expiry := range m.states {
+		if now.After(expiry) {
+			delete(m.states, k)
+		}
+	}
+	m.states[state] = now.Add(m.ttl)
 	m.mu.Unlock()
 
 	return state, nil

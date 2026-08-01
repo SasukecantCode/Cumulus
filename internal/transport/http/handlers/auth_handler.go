@@ -143,7 +143,13 @@ func printSuccess(result *usecase.AuthResult, account *domain.CloudAccount) {
 func writeError(c *gin.Context, err error) {
 	appErr, ok := err.(*usecase.AppError)
 	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"error": gin.H{
+				"code":    "internal_error",
+				"message": err.Error(),
+			},
+		})
 		return
 	}
 
@@ -153,8 +159,11 @@ func writeError(c *gin.Context, err error) {
 	}
 
 	c.JSON(statusCode, gin.H{
-		"error":   appErr.Code,
-		"message": appErr.Message,
+		"success": false,
+		"error": gin.H{
+			"code":    appErr.Code,
+			"message": appErr.Message,
+		},
 	})
 }
 

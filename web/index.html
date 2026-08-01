@@ -491,6 +491,54 @@
         </div>
       </div>
 
+      <!-- Upload Engine Section -->
+      <div class="panel" style="gap: 1rem;">
+        <div class="nodes-section-header" style="margin-bottom: 0;">
+          <h2 style="font-size: 1.25rem; font-weight: 600; color: var(--accent-green);">
+            📤 Upload File to Storage Node
+          </h2>
+          <span style="font-size: 0.85rem; color: var(--text-muted);">Atomic Upload Pipeline (POST /workspaces/:id/files)</span>
+        </div>
+
+        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+          <input type="file" id="fileUploadInput" class="input-control" style="flex: 1; min-width: 260px; padding: 0.55rem 0.8rem;">
+          <button class="btn btn-primary" id="uploadBtn" style="background: linear-gradient(135deg, var(--accent-green), #059669);" onclick="uploadSelectedFile()">
+            🚀 Upload File
+          </button>
+        </div>
+
+        <!-- Uploaded Files List -->
+        <div style="margin-top: 0.5rem;">
+          <h3 style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.5rem;">Recent Uploads</h3>
+          <div style="overflow-x: auto; background: rgba(0,0,0,0.2); border: 1px solid var(--card-border); border-radius: 10px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+              <thead>
+                <tr style="border-bottom: 1px solid var(--card-border); color: var(--text-muted);">
+                  <th style="padding: 0.6rem 0.8rem;">ID</th>
+                  <th style="padding: 0.6rem 0.8rem;">Filename</th>
+                  <th style="padding: 0.6rem 0.8rem;">MIME Type</th>
+                  <th style="padding: 0.6rem 0.8rem;">Size</th>
+                  <th style="padding: 0.6rem 0.8rem;">Target Account</th>
+                  <th style="padding: 0.6rem 0.8rem;">Provider File ID</th>
+                  <th style="padding: 0.6rem 0.8rem;">SHA-256 Checksum</th>
+                  <th style="padding: 0.6rem 0.8rem;">Status</th>
+                  <th style="padding: 0.6rem 0.8rem;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="uploadedFilesTableBody">
+                <tr id="emptyFilesRow">
+                  <td colspan="9" style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
+                    No files uploaded yet. Select a file above and click Upload.
+                  </td>
+                </tr>
+              </tbody>
+
+            </table>
+          </div>
+        </div>
+      </div>
+
+
       <!-- Live Log Console -->
       <div>
         <h3 style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 0.5rem;">Backend Event & API Console</h3>
@@ -498,6 +546,7 @@
           <div class="log-line"><span class="log-time">[System]</span> Initialized Cumulus Explorer Dashboard.</div>
         </div>
       </div>
+
 
     </main>
   </div>
@@ -576,8 +625,19 @@
           const acc = node.Account || {};
           const quota = node.Quota || {};
 
+          window.cloudAccountsMap = window.cloudAccountsMap || {};
+          if (acc.ID && acc.Email) {
+            window.cloudAccountsMap[acc.ID] = acc.Email;
+          }
+
+          if (node.Role === 'PRIMARY' && acc.Email) {
+            window.currentPrimaryEmail = acc.Email;
+          }
+
+
           aggregatedTotal += quota.TotalBytes || 0;
           aggregatedUsed += quota.UsedBytes || 0;
+
 
           const pct = (quota.TotalBytes > 0) ? Math.min(100, Math.round((quota.UsedBytes / quota.TotalBytes) * 100)) : 0;
 
@@ -626,10 +686,38 @@
         document.getElementById('totalCapacity').innerText = formatBytes(aggregatedTotal);
         document.getElementById('totalUsed').innerText = formatBytes(aggregatedUsed);
 
+        await loadWorkspaceFiles();
+
       } catch (err) {
         log(`❌ Failed to connect to server: ${err.message}`);
         document.getElementById('unauthenticatedState').style.display = 'block';
         document.getElementById('authenticatedDashboard').style.display = 'none';
+      }
+    }
+
+    async function loadWorkspaceFiles() {
+      const wsId = document.getElementById('wsIdInput').value || 1;
+      try {
+        const res = await fetch(`${API_BASE}/workspaces/${wsId}/files`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          const tbody = document.getElementById('uploadedFilesTableBody');
+          tbody.innerHTML = '';
+          if (data.data.length === 0) {
+            tbody.innerHTML = `
+              <tr id="emptyFilesRow">
+                <td colspan="9" style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
+                  No files uploaded yet. Select a file above and click Upload.
+                </td>
+              </tr>
+            `;
+            return;
+          }
+          data.data.forEach(file => addUploadedFileToTable(file, false));
+        }
+      } catch (err) {
+        console.error('Failed to load workspace files:', err);
       }
     }
 
@@ -676,6 +764,140 @@
         }
       } catch (err) {
         log(`❌ Request failed: ${err.message}`);
+      }
+    }
+
+    async function uploadSelectedFile() {
+      const fileInput = document.getElementById('fileUploadInput');
+      const wsId = document.getElementById('wsIdInput').value || 1;
+      const file = fileInput.files[0];
+
+      if (!file) {
+        alert('Please select a file to upload first.');
+        return;
+      }
+
+      log(`📤 Uploading file '${file.name}' (${formatBytes(file.size)}) to Workspace #${wsId}...`);
+
+      const uploadBtn = document.getElementById('uploadBtn');
+      uploadBtn.disabled = true;
+      uploadBtn.innerText = '⏳ Uploading...';
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const res = await fetch(`${API_BASE}/workspaces/${wsId}/files`, {
+          method: 'POST',
+          body: formData
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          log(`✅ File uploaded successfully! ID: #${data.file.id}, ProviderFileID: ${data.file.providerFileId}, Checksum: ${data.file.checksum.substring(0, 16)}...`);
+          fileInput.value = '';
+          await loadWorkspaceFiles();
+          await loadWorkspaceData(); // Refresh quota usage metrics
+        } else {
+          const errMsg = data.error ? data.error.message : 'Upload failed';
+          const errCode = data.error ? data.error.code : 'UNKNOWN';
+          log(`❌ Upload failed [${errCode}]: ${errMsg}`);
+          alert(`Upload Failed (${errCode}): ${errMsg}`);
+        }
+      } catch (err) {
+        log(`❌ Upload request error: ${err.message}`);
+        alert(`Request error: ${err.message}`);
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.innerText = '🚀 Upload File';
+      }
+    }
+
+    function addUploadedFileToTable(fileData, prepend = true) {
+      const tbody = document.getElementById('uploadedFilesTableBody');
+      const emptyRow = document.getElementById('emptyFilesRow');
+      if (emptyRow) {
+        emptyRow.remove();
+      }
+
+      const wsId = document.getElementById('wsIdInput').value || 1;
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid var(--card-border)';
+      tr.id = `file-row-${fileData.id}`;
+      const accountEmail = (fileData.cloudAccountId && window.cloudAccountsMap && window.cloudAccountsMap[fileData.cloudAccountId]) || window.currentPrimaryEmail || 'PRIMARY';
+      tr.innerHTML = `
+        <td style="padding: 0.6rem 0.8rem; font-weight: 600; color: var(--accent-cyan);">#${fileData.id}</td>
+        <td style="padding: 0.6rem 0.8rem; font-weight: 500; color: #fff;">${fileData.filename || fileData.originalFilename}</td>
+        <td style="padding: 0.6rem 0.8rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;">${fileData.mimeType}</td>
+        <td style="padding: 0.6rem 0.8rem; color: var(--text-muted);">${formatBytes(fileData.sizeBytes)}</td>
+        <td style="padding: 0.6rem 0.8rem;"><span class="badge badge-primary" style="font-size: 0.75rem;">${accountEmail}</span></td>
+
+        <td style="padding: 0.6rem 0.8rem; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--accent-purple);">${fileData.providerFileId || '-'}</td>
+        <td style="padding: 0.6rem 0.8rem; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--accent-amber);" title="${fileData.checksum}">${fileData.checksum ? fileData.checksum.substring(0, 16) + '...' : '-'}</td>
+        <td style="padding: 0.6rem 0.8rem;"><span class="badge badge-connected">${fileData.status}</span></td>
+        <td style="padding: 0.6rem 0.8rem;">
+          <div style="display: flex; gap: 0.4rem; flex-wrap: nowrap;">
+            <a href="${API_BASE}/workspaces/${wsId}/files/${fileData.id}/download" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid rgba(59,130,246,0.4);" target="_blank" title="Download File">📥 Download</a>
+            <button onclick="renameFile(${wsId}, ${fileData.id}, '${(fileData.filename || '').replace(/'/g, "\\'")}')" class="btn" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: rgba(245,158,11,0.2); color: #fbbf24; border: 1px solid rgba(245,158,11,0.4);" title="Rename File">✏️ Rename</button>
+            <button onclick="deleteFile(${wsId}, ${fileData.id}, '${(fileData.filename || '').replace(/'/g, "\\'")}')" class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" title="Delete File">🗑️ Delete</button>
+          </div>
+        </td>
+      `;
+      if (prepend) {
+        tbody.prepend(tr);
+      } else {
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function renameFile(wsId, fileId, currentName) {
+      const newName = prompt('Enter new filename:', currentName);
+      if (!newName || newName.trim() === '' || newName === currentName) return;
+
+      log(`Renaming file #${fileId} to '${newName}'...`);
+      try {
+        const res = await fetch(`${API_BASE}/workspaces/${wsId}/files/${fileId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: newName.trim() })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          log(`✅ File #${fileId} renamed to '${data.file.filename}'`);
+          await loadWorkspaceFiles();
+        } else {
+          const errMsg = data.error ? data.error.message : 'Rename failed';
+          log(`❌ Rename failed: ${errMsg}`);
+          alert(`Rename Failed: ${errMsg}`);
+        }
+      } catch (err) {
+        log(`❌ Rename error: ${err.message}`);
+        alert(`Rename Error: ${err.message}`);
+      }
+    }
+
+    async function deleteFile(wsId, fileId, filename) {
+      if (!confirm(`Are you sure you want to delete '${filename}' (File #${fileId}) from Google Drive and workspace?`)) return;
+
+      log(`Deleting file #${fileId} ('${filename}')...`);
+      try {
+        const res = await fetch(`${API_BASE}/workspaces/${wsId}/files/${fileId}`, {
+          method: 'DELETE'
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          log(`✅ File #${fileId} deleted successfully!`);
+          await loadWorkspaceFiles();
+          await loadWorkspaceData();
+        } else {
+          const errMsg = data.error ? data.error.message : 'Delete failed';
+          log(`❌ Delete failed: ${errMsg}`);
+          alert(`Delete Failed: ${errMsg}`);
+        }
+      } catch (err) {
+        log(`❌ Delete error: ${err.message}`);
+        alert(`Delete Error: ${err.message}`);
       }
     }
 

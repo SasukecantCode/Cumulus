@@ -8,6 +8,8 @@ import (
 	"cumulus/internal/infrastructure/encryption"
 	"cumulus/internal/infrastructure/google"
 	"cumulus/internal/infrastructure/postgres"
+	"cumulus/internal/infrastructure/scheduler"
+
 	"cumulus/internal/transport/http/handlers"
 	"cumulus/internal/transport/http/routes"
 	"cumulus/internal/usecase"
@@ -49,6 +51,11 @@ func main() {
 	quotaRegistry := usecase.NewMemoryQuotaProviderRegistry()
 	quotaRegistry.Register("google", googleQuotaProvider)
 
+	// Initialize storage provider registry
+	googleDriveStorageProvider := google.NewGoogleDriveStorageProvider(cfg, encryptor)
+	storageRegistry := usecase.NewMemoryStorageProviderRegistry()
+	storageRegistry.Register("google", googleDriveStorageProvider)
+
 	// Initialize repository and account service
 	cloudAccountRepo := postgres.NewCloudAccountRepository(db)
 	accountService := usecase.NewAccountService(cloudAccountRepo, encryptor)
@@ -57,10 +64,19 @@ func main() {
 	quotaService := usecase.NewQuotaService(quotaRepo, quotaRegistry, encryptor)
 	workspaceService := usecase.NewWorkspaceService(workspaceRepo, quotaService, encryptor)
 
+	fileRepo := postgres.NewFileRepository(db)
+	chunkRepo := postgres.NewFileChunkRepository(db)
+	settingsRepo := postgres.NewWorkspaceSettingsRepository(db)
+	uploadScheduler := scheduler.NewUploadScheduler(workspaceRepo, settingsRepo)
+	uploadService := usecase.NewUploadService(workspaceRepo, fileRepo, chunkRepo, storageRegistry, uploadScheduler)
+	fileService := usecase.NewFileService(workspaceRepo, fileRepo, chunkRepo, cloudAccountRepo, storageRegistry)
+
 	authHandler := handlers.NewAuthHandler(authService, accountService, workspaceService, quotaService)
+	uploadHandler := handlers.NewUploadHandler(uploadService)
+	fileHandler := handlers.NewFileHandler(fileService)
 
 	router := gin.Default()
-	routes.Register(router, authHandler)
+	routes.Register(router, authHandler, uploadHandler, fileHandler)
 
 	if err := router.Run(":" + cfg.HTTPPort); err != nil {
 		log.Fatal(err)

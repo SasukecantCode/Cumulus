@@ -124,6 +124,23 @@ func (WorkspaceCloudAccount) TableName() string {
 	return "workspace_cloud_accounts"
 }
 
+type UploadContext struct {
+	Filename  string
+	SizeBytes int64
+	MimeType  string
+}
+
+type WorkspaceSettings struct {
+	WorkspaceID    uint64         `gorm:"primaryKey"`
+	UploadStrategy UploadStrategy `gorm:"type:varchar(50);default:'fill_first'"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func (WorkspaceSettings) TableName() string {
+	return "workspace_settings"
+}
+
 type WorkspaceStorageNode struct {
 	Account *CloudAccount
 	Quota   *CloudQuota
@@ -131,52 +148,64 @@ type WorkspaceStorageNode struct {
 	Status  WorkspaceConnectionStatus
 }
 
-type GoogleAccount struct {
-	ID               uint64
-	UserID           uint64
-	Gmail            string
-	RefreshToken     string
-	AccessToken      string
-	StorageTotal     int64
-	StorageUsed      int64
-	StorageRemaining int64
-	Priority         int
-	Status           AccountStatus
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+type FileStatus string
+
+const (
+	FileStatusUploading    FileStatus = "UPLOADING"
+	FileStatusAvailable    FileStatus = "AVAILABLE"
+	FileStatusFailed       FileStatus = "FAILED"
+	FileStatusDeleting     FileStatus = "DELETING"
+	FileStatusDeleteFailed FileStatus = "DELETE_FAILED"
+	FileStatusDeleted      FileStatus = "DELETED"
+)
+
+type FileListFilter struct {
+	WorkspaceID uint64
+	Limit       int
+	Offset      int
+	Filename    string
+	MimeType    string
+	Status      FileStatus
 }
 
 type File struct {
-	ID              uint64
-	OwnerID         uint64
-	Filename        string
-	GoogleFileID    string
-	GoogleAccountID uint64
-	Size            int64
-	Checksum        string
-	MimeType        string
-	UploadedAt      time.Time
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-}
-
-type Folder struct {
-	ID        uint64
-	OwnerID   uint64
-	Name      string
-	Path      string
-	ParentID  *uint64
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type StoragePolicy struct {
-	ID               uint64
-	OwnerID          uint64
-	Name             string
-	PrimaryStrategy  UploadStrategy
-	FallbackStrategy UploadStrategy
-	PreferredAccount uint64
+	ID               uint64  `gorm:"primaryKey"`
+	WorkspaceID      uint64  `gorm:"index:idx_files_workspace_id"`
+	CloudAccountID   uint64  `gorm:"index:idx_files_cloud_account_id"`
+	ParentID         *uint64 `gorm:"index:idx_files_parent_id"`
+	Provider         string  `gorm:"index:idx_files_provider"`
+	ProviderFileID   string  `gorm:"index:idx_files_provider_file_id"`
+	Filename         string  `gorm:"type:varchar(255)"`
+	OriginalFilename string  `gorm:"type:varchar(255)"`
+	MimeType         string  `gorm:"type:varchar(255)"`
+	Extension        string  `gorm:"type:varchar(50)"`
+	SizeBytes        int64
+	Checksum         string     `gorm:"type:varchar(64)"`
+	Status           FileStatus `gorm:"type:varchar(50);index:idx_files_status"`
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	DeletedAt        *time.Time `gorm:"index:idx_files_deleted_at"`
+}
+
+func (File) TableName() string {
+	return "files"
+}
+
+type FileChunk struct {
+	ID             uint64 `gorm:"primaryKey"`
+	FileID         uint64 `gorm:"index:idx_file_chunks_file_id"`
+	CloudAccountID uint64 `gorm:"index:idx_file_chunks_cloud_account_id"`
+	Provider       string `gorm:"type:varchar(50)"`
+	ProviderFileID string `gorm:"type:varchar(255)"`
+	ChunkIndex     int    `gorm:"index:idx_file_chunks_chunk_index"`
+	OffsetBytes    int64
+	SizeBytes      int64
+	Checksum       string     `gorm:"type:varchar(64)"`
+	Status         FileStatus `gorm:"type:varchar(50)"`
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+func (FileChunk) TableName() string {
+	return "file_chunks"
 }

@@ -21,6 +21,20 @@ const (
 	ErrorCodeCloudAccountAlreadyAttached    ErrorCode = "cloud_account_already_attached"
 	ErrorCodePrimaryAccountCannotDisconnect ErrorCode = "primary_account_cannot_disconnect"
 	ErrorCodeWorkspaceNotFound              ErrorCode = "workspace_not_found"
+	ErrorCodePrimaryAccountMissing          ErrorCode = "primary_account_missing"
+	ErrorCodeStorageProviderUnavailable     ErrorCode = "storage_provider_unavailable"
+	ErrorCodeStorageAuthenticationFailed    ErrorCode = "storage_authentication_failed"
+	ErrorCodeFileUploadFailed               ErrorCode = "file_upload_failed"
+	ErrorCodeFileTooLarge                   ErrorCode = "file_too_large"
+	ErrorCodeInvalidUploadRequest           ErrorCode = "invalid_upload_request"
+	ErrorCodeChecksumFailed                 ErrorCode = "checksum_failed"
+	ErrorCodeDatabasePersistenceFailed      ErrorCode = "database_persistence_failed"
+	ErrorCodeFileNotFound                   ErrorCode = "file_not_found"
+	ErrorCodeFileDownloadFailed             ErrorCode = "file_download_failed"
+	ErrorCodeFileDeleteFailed               ErrorCode = "file_delete_failed"
+	ErrorCodeFileRenameFailed               ErrorCode = "file_rename_failed"
+	ErrorCodeFileMoveFailed                 ErrorCode = "file_move_failed"
+	ErrorCodeInsufficientStorage            ErrorCode = "insufficient_storage"
 )
 
 type AppError struct {
