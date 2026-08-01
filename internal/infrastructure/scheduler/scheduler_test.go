@@ -273,3 +273,121 @@ func TestScheduler_EligibilityRules(t *testing.T) {
 		t.Errorf("expected node ID 40 (only eligible node), got %d", selected.Account.ID)
 	}
 }
+
+func TestScheduler_Scenario1_FillFirstThreeAccounts(t *testing.T) {
+	nodeA := createTestNode(10, domain.WorkspaceRolePrimary, 500, 0, 500)
+	nodeB := createTestNode(20, domain.WorkspaceRoleSecondary, 500, 0, 500)
+	nodeC := createTestNode(30, domain.WorkspaceRoleSecondary, 500, 0, 500)
+
+	wsRepo := &mockWorkspaceRepo{
+		nodes: map[uint64][]*domain.WorkspaceStorageNode{
+			1: {nodeA, nodeB, nodeC},
+		},
+	}
+	settingsRepo := &mockSettingsRepo{}
+
+	sch := scheduler.NewUploadScheduler(wsRepo, settingsRepo)
+	uploadCtx := &domain.UploadContext{Filename: "chunk.bin", SizeBytes: 100}
+
+	for i := 0; i < 5; i++ {
+		selected, err := sch.SelectNode(context.Background(), 1, uploadCtx)
+		if err != nil {
+			t.Fatalf("upload %d failed: %v", i, err)
+		}
+		if selected.Account.ID != 10 {
+			t.Fatalf("upload %d: expected Node A (10), got %d", i, selected.Account.ID)
+		}
+		nodeA.Quota.UsedBytes += 100
+		nodeA.Quota.AvailableBytes -= 100
+	}
+
+	selected, err := sch.SelectNode(context.Background(), 1, uploadCtx)
+	if err != nil {
+		t.Fatalf("upload after Node A full failed: %v", err)
+	}
+	if selected.Account.ID != 20 {
+		t.Fatalf("expected Node B (20) after Node A full, got %d", selected.Account.ID)
+	}
+}
+
+func TestScheduler_Scenario2_SingleAccountSufficientSpace(t *testing.T) {
+	nodeA := createTestNode(10, domain.WorkspaceRolePrimary, 1000, 900, 100)
+	nodeB := createTestNode(20, domain.WorkspaceRoleSecondary, 1000, 300, 700)
+
+	wsRepo := &mockWorkspaceRepo{
+		nodes: map[uint64][]*domain.WorkspaceStorageNode{
+			1: {nodeA, nodeB},
+		},
+	}
+	settingsRepo := &mockSettingsRepo{}
+
+	sch := scheduler.NewUploadScheduler(wsRepo, settingsRepo)
+	uploadCtx := &domain.UploadContext{Filename: "file.bin", SizeBytes: 500}
+
+	selected, err := sch.SelectNode(context.Background(), 1, uploadCtx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if selected.Account.ID != 20 {
+		t.Fatalf("expected single node selection Node B (20), got %d", selected.Account.ID)
+	}
+}
+
+func TestScheduler_Scenario3_NoSingleAccountFits_TriggersChunking(t *testing.T) {
+	nodeA := createTestNode(10, domain.WorkspaceRolePrimary, 1000, 600, 400)
+	nodeB := createTestNode(20, domain.WorkspaceRoleSecondary, 1000, 700, 300)
+	nodeC := createTestNode(30, domain.WorkspaceRoleSecondary, 1000, 800, 200)
+
+	wsRepo := &mockWorkspaceRepo{
+		nodes: map[uint64][]*domain.WorkspaceStorageNode{
+			1: {nodeA, nodeB, nodeC},
+		},
+	}
+	settingsRepo := &mockSettingsRepo{}
+
+	sch := scheduler.NewUploadScheduler(wsRepo, settingsRepo)
+	uploadCtx := &domain.UploadContext{Filename: "large.bin", SizeBytes: 800}
+
+	_, err := sch.SelectNode(context.Background(), 1, uploadCtx)
+	if err == nil {
+		t.Fatalf("expected InsufficientStorage error so UploadService activates ChunkPlanner")
+	}
+
+	var appErr *usecase.AppError
+	if !errors.As(err, &appErr) || appErr.Code != usecase.ErrorCodeInsufficientStorage {
+		t.Fatalf("expected ErrorCodeInsufficientStorage, got %v", err)
+	}
+}
+
+func TestScheduler_Scenario4_RoundRobinIsOptionalNotDefault(t *testing.T) {
+	nodeA := createTestNode(10, domain.WorkspaceRolePrimary, 1000, 0, 1000)
+	nodeB := createTestNode(20, domain.WorkspaceRoleSecondary, 1000, 0, 1000)
+
+	wsRepo := &mockWorkspaceRepo{
+		nodes: map[uint64][]*domain.WorkspaceStorageNode{
+			1: {nodeA, nodeB},
+		},
+	}
+
+	schDefault := scheduler.NewUploadScheduler(wsRepo, nil)
+	uploadCtx := &domain.UploadContext{Filename: "test.txt", SizeBytes: 100}
+
+	s1, _ := schDefault.SelectNode(context.Background(), 1, uploadCtx)
+	s2, _ := schDefault.SelectNode(context.Background(), 1, uploadCtx)
+	if s1.Account.ID != 10 || s2.Account.ID != 10 {
+		t.Fatalf("expected default to be FillFirst (Node A both times), got %d and %d", s1.Account.ID, s2.Account.ID)
+	}
+
+	settingsRepoRR := &mockSettingsRepo{
+		settings: map[uint64]*domain.WorkspaceSettings{
+			1: {WorkspaceID: 1, UploadStrategy: domain.UploadStrategyRoundRobin},
+		},
+	}
+	schRR := scheduler.NewUploadScheduler(wsRepo, settingsRepoRR)
+
+	r1, _ := schRR.SelectNode(context.Background(), 1, uploadCtx)
+	r2, _ := schRR.SelectNode(context.Background(), 1, uploadCtx)
+	if r1.Account.ID != 10 || r2.Account.ID != 20 {
+		t.Fatalf("expected explicit RoundRobin rotation (Node A then B), got %d and %d", r1.Account.ID, r2.Account.ID)
+	}
+}

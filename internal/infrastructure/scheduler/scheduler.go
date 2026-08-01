@@ -112,9 +112,14 @@ func (s *UploadScheduler) SelectNode(
 	}
 }
 
-// FILL_FIRST: Select the first node in deterministic order (sorted by Account ID)
+// FILL_FIRST: Default primary strategy. Selects the first node in deterministic order (Primary account first, then Secondary by Account ID)
 func (s *UploadScheduler) selectFillFirst(eligible []*domain.WorkspaceStorageNode) (*domain.WorkspaceStorageNode, error) {
-	sortNodesByID(eligible)
+	sort.Slice(eligible, func(i, j int) bool {
+		if eligible[i].Role != eligible[j].Role {
+			return eligible[i].Role == domain.WorkspaceRolePrimary
+		}
+		return eligible[i].Account.ID < eligible[j].Account.ID
+	})
 	return eligible[0], nil
 }
 

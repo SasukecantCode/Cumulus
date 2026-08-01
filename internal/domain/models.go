@@ -10,13 +10,29 @@ const (
 	AccountStatusExpired  AccountStatus = "expired"
 )
 
+// UploadStrategy defines how storage accounts are selected for single-node file uploads.
+// Cumulus defaults to FillFirst to minimize fragmentation by filling one account
+// to capacity before utilizing additional storage nodes.
 type UploadStrategy string
 
 const (
-	UploadStrategyFillFirst       UploadStrategy = "fill_first"
-	UploadStrategyLeastUsed       UploadStrategy = "least_used"
-	UploadStrategyMostAvailable   UploadStrategy = "most_available"
-	UploadStrategyRoundRobin      UploadStrategy = "round_robin"
+	// UploadStrategyFillFirst is the DEFAULT primary strategy for Cumulus.
+	// It fills accounts sequentially (Primary first, then Secondary by ID) to minimize fragmentation.
+	UploadStrategyFillFirst UploadStrategy = "fill_first"
+
+	// UploadStrategyLeastUsed is an optional advanced strategy.
+	// It distributes files to the account with the lowest utilization percentage.
+	UploadStrategyLeastUsed UploadStrategy = "least_used"
+
+	// UploadStrategyMostAvailable is an optional advanced strategy.
+	// It distributes files to the account with the highest absolute available capacity.
+	UploadStrategyMostAvailable UploadStrategy = "most_available"
+
+	// UploadStrategyRoundRobin is an optional advanced strategy.
+	// It rotates uploads evenly across eligible accounts. Note: This conflicts with
+	// the core Cumulus philosophy of minimizing fragmentation and must never be the default.
+	UploadStrategyRoundRobin UploadStrategy = "round_robin"
+
 	UploadStrategyFastestProvider UploadStrategy = "fastest_provider"
 	UploadStrategyUserSelected    UploadStrategy = "user_selected"
 )
